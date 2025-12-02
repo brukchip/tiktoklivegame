@@ -422,9 +422,11 @@
             <p>Advanced Session Management & Real-time Analytics</p>
         </div>
 
-        <div class="nav-menu" style="display: flex; justify-content: center; gap: 20px; margin-bottom: 30px;">
+        <div class="nav-menu" style="display: flex; justify-content: center; gap: 20px; margin-bottom: 30px; flex-wrap: wrap;">
             <a href="index.html" class="nav-link active" style="background: linear-gradient(45deg, #ff6b6b, #ee5a24); color: white; text-decoration: none; padding: 12px 24px; border-radius: 25px; border: 1px solid #ff6b6b; font-weight: 500;">🎮 Live Dashboard</a>
             <a href="data.html" class="nav-link" style="background: rgba(255, 255, 255, 0.1); color: white; text-decoration: none; padding: 12px 24px; border-radius: 25px; border: 1px solid rgba(255, 255, 255, 0.3); transition: all 0.3s ease; font-weight: 500;">📊 Data Analytics</a>
+            <a href="gaming.html" class="nav-link" style="background: rgba(255, 255, 255, 0.1); color: white; text-decoration: none; padding: 12px 24px; border-radius: 25px; border: 1px solid rgba(255, 255, 255, 0.3); transition: all 0.3s ease; font-weight: 500;">🎯 Gaming Hub</a>
+            <a href="game-settings.html" class="nav-link" style="background: rgba(255, 255, 255, 0.1); color: white; text-decoration: none; padding: 12px 24px; border-radius: 25px; border: 1px solid rgba(255, 255, 255, 0.3); transition: all 0.3s ease; font-weight: 500;">⚙️ Game Settings</a>
         </div>
 
         <div class="dashboard">
@@ -484,22 +486,7 @@
                     </div>
                 </div>
 
-                <!-- External API Section -->
-                <div class="form-group" style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 20px;">
-                    <h4>📡 External API Integration</h4>
-                    <p style="font-size: 14px; color: rgba(255,255,255,0.7); margin-bottom: 15px;">
-                        Send live data to external services
-                    </p>
-                    
-                    <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                        <input type="text" id="webhookUrl" placeholder="https://your-api.com/webhook" style="flex: 1; padding: 8px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.1); color: white;">
-                        <button class="btn btn-secondary" onclick="addWebhook()">➕ Add</button>
-                    </div>
-                    
-                    <div id="webhooksList" class="webhooks-list"></div>
-                    
-                    <button class="btn btn-secondary" onclick="testWebhooks()">🧪 Test All Webhooks</button>
-                </div>
+
             </div>
 
             <div class="session-info">

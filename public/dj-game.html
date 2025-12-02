@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎵 TikTok Live DJ Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 3rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        .auth-section {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .auth-section.connected {
+            background: rgba(46, 213, 115, 0.1);
+            border: 2px solid #2ed573;
+        }
+
+        .auth-button {
+            padding: 15px 30px;
+            border: none;
+            border-radius: 50px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            background: linear-gradient(45deg, #1DB954, #1ed760);
+            color: white;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .auth-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+
+        .auth-button img {
+            width: 24px;
+            height: 24px;
+        }
+
+        .session-input {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .session-input select {
+            padding: 15px 20px;
+            border: none;
+            border-radius: 25px;
+            font-size: 1.1rem;
+            margin-right: 15px;
+            min-width: 300px;
+            background: rgba(255,255,255,0.9);
+            color: #333;
+            cursor: pointer;
+        }
+
+        .session-input select option {
+            background: #2c3e50;
+            color: white;
+            padding: 10px;
+        }
+
+        .btn {
+            padding: 15px 30px;
+            border: none;
+            border-radius: 50px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+
+        .game-controls {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+
+        .game-status {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 10px;
+            animation: pulse 2s infinite;
+        }
+
+        .status-active { background: #2ed573; }
+        .status-inactive { background: #ff4757; }
+
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.7; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        /* Interactive Dashboard Styles */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .dashboard-card {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .dashboard-card h4 {
+            margin: 0 0 15px 0;
+            color: #ff6b6b;
+            font-size: 1.1rem;
+        }
+
+        .phase-indicator {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #2ed573;
+            margin-bottom: 10px;
+        }
+
+        .time-counter {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #ff6b6b;
+            margin-bottom: 10px;
+        }
+
+        .round-info {
+            color: rgba(255,255,255,0.8);
+            font-size: 0.9rem;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            padding: 5px 0;
+        }
+
+        .stat-label {
+            color: rgba(255,255,255,0.8);
+        }
+
+        .stat-value {
+            color: #2ed573;
+            font-weight: bold;
+        }
+
+        .song-requests-list, .top-list, .playlist-list {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .song-request-item, .top-user-item, .playlist-item {
+            background: rgba(255,255,255,0.1);
+            margin: 5px 0;
+            padding: 8px 12px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .song-name {
+            color: #ff6b6b;
+            font-weight: bold;
+        }
+
+        .request-count {
+            background: #2ed573;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+
+        .voting-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .voting-option {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .voting-option:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+
+        .voting-option .letter {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .voting-option .song-name {
+            font-size: 0.9rem;
+            margin-bottom: 5px;
+        }
+
+        .voting-option .vote-count {
+            font-size: 0.8rem;
+            opacity: 0.8;
+        }
+
+        .no-requests, .no-data {
+            color: rgba(255,255,255,0.5);
+            text-align: center;
+            padding: 20px;
+            font-style: italic;
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .alert-success {
+            background: rgba(46, 213, 115, 0.2);
+            border: 1px solid #2ed573;
+            color: #2ed573;
+        }
+
+        .alert-error {
+            background: rgba(255, 71, 87, 0.2);
+            border: 1px solid #ff4757;
+            color: #ff4757;
+        }
+
+        .instructions {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 25px;
+            margin-bottom: 30px;
+        }
+
+        .instructions h3 {
+            margin-bottom: 15px;
+            color: #ff6b6b;
+        }
+
+        .instructions ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .instructions li {
+            margin-bottom: 8px;
+            padding-left: 20px;
+            position: relative;
+        }
+
+        .instructions li:before {
+            content: "🎵";
+            position: absolute;
+            left: 0;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .game-controls {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .session-input input {
+                min-width: 250px;
+                margin-bottom: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎵 TikTok Live DJ Game</h1>
+            <p>Interactive music voting system for TikTok Live streams</p>
+        </div>
+
+        <div id="authSection" class="auth-section">
+            <h2>🎵 Spotify Connection</h2>
+            <p id="authStatus">Not connected to Spotify</p>
+            <button id="spotifyAuthBtn" class="auth-button" onclick="connectSpotify()">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/1/19/Spotify_logo_without_text.svg/768px-Spotify_logo_without_text.svg.png" alt="Spotify">
+                Connect with Spotify
+            </button>
+        </div>
+
+        <div id="alertSuccess" class="alert alert-success">
+            Successfully connected to Spotify!
+        </div>
+
+        <div id="alertError" class="alert alert-error">
+            Failed to connect to Spotify. Please try again.
+        </div>
+
+        <div class="session-input">
+            <select id="sessionSelect" onchange="setSession()">
+                <option value="">Select a Session</option>
+            </select>
+            <button class="btn btn-primary" onclick="refreshSessions()">🔄 Refresh Sessions</button>
+        </div>
+
+        <div class="game-controls">
+            <button class="btn btn-primary" onclick="startDJGame()">🎵 Start DJ Game</button>
+            <button class="btn btn-primary" onclick="getGameStatus()">📊 Game Status</button>
+            <button class="btn btn-primary" onclick="stopDJGame()">⏹️ Stop Game</button>
+        </div>
+
+        <div class="game-status">
+            <h3>🎮 Game Status</h3>
+            <div id="gameStatus">
+                <span class="status-indicator status-inactive"></span>
+                <span>No active game</span>
+            </div>
+            
+            <!-- Live Game Dashboard -->
+            <div id="liveDashboard" style="display: none;">
+                <div class="dashboard-grid">
+                    <!-- Phase Info -->
+                    <div class="dashboard-card">
+                        <h4>📊 Current Phase</h4>
+                        <div id="phaseInfo">
+                            <div class="phase-indicator">Song Request Phase</div>
+                            <div class="time-counter" id="timeCounter">30s</div>
+                            <div class="round-info">Round <span id="roundNumber">1</span></div>
+                        </div>
+                    </div>
+                    
+                    <!-- Participant Stats -->
+                    <div class="dashboard-card">
+                        <h4>👥 Participants</h4>
+                        <div id="participantStats">
+                            <div class="stat-item">
+                                <span class="stat-label">Total Requests:</span>
+                                <span class="stat-value" id="totalRequests">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Unique Users:</span>
+                                <span class="stat-value" id="uniqueUsers">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Requests/sec:</span>
+                                <span class="stat-value" id="requestsPerSecond">0.00</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Live Song Requests -->
+                    <div class="dashboard-card">
+                        <h4>🎵 Live Song Requests</h4>
+                        <div id="liveSongRequests" class="song-requests-list">
+                            <div class="no-requests">No requests yet...</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Top Participants -->
+                    <div class="dashboard-card">
+                        <h4>🏆 Top Requesters</h4>
+                        <div id="topRequesters" class="top-list">
+                            <div class="no-data">No data yet...</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Voting Section (shown during voting phase) -->
+                <div id="votingSection" style="display: none;">
+                    <h4>🗳️ Vote for Your Favorite!</h4>
+                    <div id="votingOptions" class="voting-grid">
+                        <!-- Voting options will be populated here -->
+                    </div>
+                </div>
+                
+                <!-- Game Playlist -->
+                <div id="playlistSection" style="display: none;">
+                    <h4>📜 Game Playlist</h4>
+                    <div id="gamePlaylist" class="playlist-list">
+                        <!-- Playlist will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="instructions">
+            <h3>🎯 How to Play</h3>
+            <ul>
+                <li><strong>Step 1:</strong> Connect your Spotify account</li>
+                <li><strong>Step 2:</strong> Enter your TikTok Live session ID</li>
+                <li><strong>Step 3:</strong> Start the DJ Game</li>
+                <li><strong>Phase 1 (30s):</strong> Viewers comment song names to request music</li>
+                <li><strong>Phase 2 (30s):</strong> Top 4 songs get letters A, B, C, D - viewers vote by commenting the letter</li>
+                <li><strong>Phase 3:</strong> Winning song plays through Spotify, then next round begins</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+
+
+        function showAlert(type) {
+            const successAlert = document.getElementById('alertSuccess');
+            const errorAlert = document.getElementById('alertError');
+            
+            if (type === 'success') {
+                successAlert.style.display = 'block';
+                setTimeout(() => successAlert.style.display = 'none', 5000);
+            } else {
+                errorAlert.style.display = 'block';
+                setTimeout(() => errorAlert.style.display = 'none', 5000);
+            }
+        }
+
+        function updateAuthSection(isConnected) {
+            const authSection = document.getElementById('authSection');
+            const authStatus = document.getElementById('authStatus');
+            const authButton = document.getElementById('spotifyAuthBtn');
+            
+            if (isConnected) {
+                authSection.classList.add('connected');
+                authStatus.textContent = '✅ Connected to Spotify';
+                authButton.style.display = 'none';
+            } else {
+                authSection.classList.remove('connected');
+                authStatus.textContent = 'Not connected to Spotify';
+                authButton.style.display = 'inline-flex';
+            }
+        }
+
+        async function connectSpotify() {
+            try {
+                const response = await fetch('/api/spotify/auth');
+                const data = await response.json();
+                window.location.href = data.url;
+            } catch (error) {
+                console.error('Error getting Spotify auth URL:', error);
+                showAlert('error');
+            }
+        }
+
+        let currentSessionId = null;
+
+        // Load sessions on page load
+        window.onload = function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const authStatus = urlParams.get('auth');
+            
+            if (authStatus === 'success') {
+                showAlert('success');
+                updateAuthSection(true);
+            } else if (authStatus === 'error') {
+                showAlert('error');
+            }
+
+            // Clean the URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+            
+            // Load available sessions
+            refreshSessions();
+        };
+
+        async function refreshSessions() {
+            try {
+                const response = await fetch('/api/sessions');
+                const data = await response.json();
+                const sessions = data.sessions || [];
+                
+                const sessionSelect = document.getElementById('sessionSelect');
+                sessionSelect.innerHTML = '<option value="">Select a Session</option>';
+                
+                if (sessions && sessions.length > 0) {
+                    sessions.forEach(session => {
+                        const option = document.createElement('option');
+                        option.value = session.id;
+                        const username = session.streamer_username || session.username || 'Unknown';
+                        const status = session.status || 'Active';
+                        option.textContent = `@${username} - ${status}`;
+                        sessionSelect.appendChild(option);
+                    });
+                    console.log(`Loaded ${sessions.length} sessions`);
+                } else {
+                    const option = document.createElement('option');
+                    option.value = '';
+                    option.textContent = 'No sessions available';
+                    sessionSelect.appendChild(option);
+                    console.log('No sessions found in response');
+                }
+            } catch (error) {
+                console.error('Error fetching sessions:', error);
+                const sessionSelect = document.getElementById('sessionSelect');
+                sessionSelect.innerHTML = '<option value="">Error loading sessions</option>';
+            }
+        }
+
+        function setSession() {
+            const sessionSelect = document.getElementById('sessionSelect');
+            const sessionId = sessionSelect.value;
+            
+            if (sessionId) {
+                currentSessionId = sessionId;
+                getGameStatus();
+                console.log(`Session set to: ${sessionId}`);
+                
+                // Show success message
+                const selectedOption = sessionSelect.options[sessionSelect.selectedIndex];
+                showAlert('success');
+                document.getElementById('alertSuccess').textContent = `Session set to: ${selectedOption.textContent}`;
+            }
+        }
+
+        async function startDJGame() {
+            if (!currentSessionId) {
+                alert('Please set a session ID first');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/gaming/djgame/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionId: currentSessionId })
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    console.log('DJ Game started:', result);
+                    getGameStatus();
+                } else {
+                    alert('Failed to start DJ Game: ' + result.error);
+                }
+            } catch (error) {
+                console.error('Error starting DJ Game:', error);
+                alert('Error starting DJ Game');
+            }
+        }
+
+        async function getGameStatus() {
+            if (!currentSessionId) return;
+
+            try {
+                const response = await fetch(`/api/gaming/djgame/status/${currentSessionId}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    updateGameStatus(result.status);
+                } else {
+                    console.log('No active DJ Game found');
+                    updateGameStatus(null);
+                }
+            } catch (error) {
+                console.error('Error getting game status:', error);
+            }
+        }
+
+        function updateGameStatus(status) {
+            const statusElement = document.getElementById('gameStatus');
+            const liveDashboard = document.getElementById('liveDashboard');
+            
+            console.log('Updating game status with:', status); // Debug log
+            
+            if (!status) {
+                statusElement.innerHTML = `
+                    <span class="status-indicator status-inactive"></span>
+                    <span>No active game</span>
+                `;
+                liveDashboard.style.display = 'none';
+                return;
+            }
+
+            // Check if game has ended
+            if (status.status === 'ended' || status.phase === 'ended') {
+                statusElement.innerHTML = `
+                    <span class="status-indicator status-inactive"></span>
+                    <span>Game Ended</span>
+                    <div style="margin-top: 10px">Round ${status.currentRound}</div>
+                `;
+                liveDashboard.style.display = 'none';
+                return;
+            }
+
+            // Show live dashboard
+            liveDashboard.style.display = 'block';
+
+            // Update basic status with better phase detection
+            let phaseText = 'Unknown';
+            if (status.phase === 'song-request') {
+                phaseText = 'Song Request Phase';
+            } else if (status.phase === 'voting') {
+                phaseText = 'Voting Phase';
+            } else if (status.phase === 'playing') {
+                phaseText = 'Playing Phase';
+            } else if (status.phase === 'ended') {
+                phaseText = 'Game Ended';
+            }
+
+            statusElement.innerHTML = `
+                <span class="status-indicator status-active"></span>
+                <span>${phaseText}</span>
+                <div style="margin-top: 10px">Round ${status.currentRound}</div>
+            `;
+
+            // Update interactive dashboard
+            updateInteractiveDashboard(status);
+        }
+
+        function updateInteractiveDashboard(status) {
+            console.log('Updating interactive dashboard with:', status); // Debug log
+            
+            // Update phase info
+            const phaseIndicator = document.querySelector('#phaseInfo .phase-indicator');
+            const timeCounter = document.getElementById('timeCounter');
+            const roundNumber = document.getElementById('roundNumber');
+            
+            if (phaseIndicator) {
+                let phaseText = 'Unknown';
+                if (status.phase === 'song-request') {
+                    phaseText = 'Song Request Phase';
+                } else if (status.phase === 'voting') {
+                    phaseText = 'Voting Phase';
+                } else if (status.phase === 'playing') {
+                    phaseText = 'Playing Phase';
+                } else if (status.phase === 'ended') {
+                    phaseText = 'Game Ended';
+                }
+                phaseIndicator.textContent = phaseText;
+            }
+            
+            if (timeCounter) {
+                const seconds = Math.ceil(status.timeRemaining / 1000);
+                timeCounter.textContent = `${seconds}s`;
+            }
+            
+            if (roundNumber) {
+                roundNumber.textContent = status.currentRound;
+            }
+
+            // Update participant stats
+            if (status.totalRequests !== undefined) {
+                document.getElementById('totalRequests').textContent = status.totalRequests;
+                document.getElementById('uniqueUsers').textContent = status.uniqueUsers || 0;
+                document.getElementById('requestsPerSecond').textContent = status.requestsPerSecond || '0.00';
+            }
+
+            // Update live song requests
+            updateLiveSongRequests(status.songRequests || []);
+
+            // Update top requesters
+            updateTopRequesters(status.topRequesters || []);
+
+            // Update voting section
+            updateVotingSection(status);
+
+            // Update playlist
+            updatePlaylist(status.playlist || []);
+        }
+
+        function updateLiveSongRequests(songRequests) {
+            const container = document.getElementById('liveSongRequests');
+            
+            if (!songRequests || songRequests.length === 0) {
+                container.innerHTML = '<div class="no-requests">No requests yet...</div>';
+                return;
+            }
+
+            container.innerHTML = songRequests.map(song => `
+                <div class="song-request-item">
+                    <span class="song-name">${song.song || song.name}</span>
+                    <span class="request-count">${song.count}</span>
+                </div>
+            `).join('');
+        }
+
+        function updateTopRequesters(topRequesters) {
+            const container = document.getElementById('topRequesters');
+            
+            if (!topRequesters || topRequesters.length === 0) {
+                container.innerHTML = '<div class="no-data">No data yet...</div>';
+                return;
+            }
+
+            container.innerHTML = topRequesters.map(user => `
+                <div class="top-user-item">
+                    <span class="song-name">@${user.username}</span>
+                    <span class="request-count">${user.count}</span>
+                </div>
+            `).join('');
+        }
+
+        function updateVotingSection(status) {
+            const votingSection = document.getElementById('votingSection');
+            const votingOptions = document.getElementById('votingOptions');
+            
+            if (status.phase === 'voting' && status.topSongs && status.topSongs.length > 0) {
+                votingSection.style.display = 'block';
+                
+                votingOptions.innerHTML = status.topSongs.map(song => `
+                    <div class="voting-option">
+                        <div class="letter">${song.letter}</div>
+                        <div class="song-name">${song.name}</div>
+                        <div class="vote-count">${song.requestCount} requests</div>
+                    </div>
+                `).join('');
+            } else {
+                votingSection.style.display = 'none';
+            }
+        }
+
+        function updatePlaylist(playlist) {
+            const playlistSection = document.getElementById('playlistSection');
+            const gamePlaylist = document.getElementById('gamePlaylist');
+            
+            if (playlist && playlist.length > 0) {
+                playlistSection.style.display = 'block';
+                
+                gamePlaylist.innerHTML = playlist.map((song, index) => `
+                    <div class="playlist-item">
+                        <span class="song-name">${index + 1}. ${song.name || song.songName}</span>
+                        <span class="request-count">Winner</span>
+                    </div>
+                `).join('');
+            } else {
+                playlistSection.style.display = 'none';
+            }
+        }
+
+        async function stopDJGame() {
+            if (!currentSessionId) return;
+
+            try {
+                const response = await fetch('/api/gaming/djgame/end', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionId: currentSessionId })
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    console.log('DJ Game stopped:', result);
+                    getGameStatus();
+                } else {
+                    alert('Failed to stop DJ Game: ' + result.error);
+                }
+            } catch (error) {
+                console.error('Error stopping DJ Game:', error);
+                alert('Error stopping DJ Game');
+            }
+        }
+
+        // Poll for game status every 2 seconds
+        setInterval(() => {
+            if (currentSessionId) {
+                getGameStatus();
+            }
+        }, 2000);
+    </script>
+</body>
+</html>

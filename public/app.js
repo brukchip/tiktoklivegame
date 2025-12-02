@@ -7,7 +7,11 @@ class TikTokLiveApp {
         this.eventSource = null;
         this.events = [];
         this.ngrokStatus = { isConnected: false, url: null };
-        this.webhooks = [];
+        
+        // Pagination for sessions
+        this.currentPage = 1;
+        this.sessionsPerPage = 5;
+        this.totalSessions = 0;
         
         this.init();
     }
@@ -17,7 +21,6 @@ class TikTokLiveApp {
         this.loadSessions();
         this.setupEventListeners();
         this.checkNgrokStatus();
-        this.loadWebhooks();
     }
 
     setupEventListeners() {
@@ -146,6 +149,39 @@ class TikTokLiveApp {
         } catch (error) {
             console.error('Error ending session:', error);
             this.showAlert(`❌ ${error.message}`, 'error');
+        }
+    }
+
+    async endSession(sessionId) {
+        if (!sessionId) {
+            this.showAlert('❌ No session ID provided', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch(`${this.API_BASE}/sessions/${sessionId}`, {
+                method: 'DELETE'
+            });
+
+            const result = await response.json();
+            
+            if (result.success) {
+                this.showAlert('✅ Session ended successfully', 'success');
+                
+                // Refresh sessions list to show updated status
+                this.loadSessions();
+                
+                // If this was the current session, reset UI
+                if (this.currentSession === sessionId) {
+                    this.resetUI();
+                }
+            } else {
+                throw new Error(result.error || 'Failed to end session');
+            }
+
+        } catch (error) {
+            console.error('Error ending session:', error);
+            this.showAlert(`❌ Failed to end session: ${error.message}`, 'error');
         }
     }
 
@@ -435,7 +471,16 @@ class TikTokLiveApp {
             return;
         }
         
-        const sessionsHtml = sessions.map(session => {
+        // Store total sessions and calculate pagination
+        this.totalSessions = sessions.length;
+        const totalPages = Math.ceil(this.totalSessions / this.sessionsPerPage);
+        
+        // Calculate start and end indices for current page
+        const startIndex = (this.currentPage - 1) * this.sessionsPerPage;
+        const endIndex = Math.min(startIndex + this.sessionsPerPage, this.totalSessions);
+        const paginatedSessions = sessions.slice(startIndex, endIndex);
+        
+        const sessionsHtml = paginatedSessions.map(session => {
             const startTime = new Date(session.session_start).toLocaleString();
             const endTime = session.session_end ? new Date(session.session_end).toLocaleString() : 'Ongoing';
             const duration = session.session_end ? 
@@ -444,18 +489,49 @@ class TikTokLiveApp {
             
             return `
                 <div class="session-item ${session.isActive ? 'active' : ''}" 
-                     onclick="this.loadSessionDetails('${session.id}')">
+                     data-session-id="${session.id}"
+                     style="cursor: pointer; position: relative;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div>
+                        <div onclick="app.loadSessionDetails('${session.id}')" style="flex: 1;">
                             <strong>@${session.streamer_username}</strong>
                             ${session.isActive ? '<span style="color: #00b894;">🟢 LIVE</span>' : '<span style="color: #e17055;">⚫ ENDED</span>'}
                         </div>
+                        <div style="display: flex; gap: 10px; align-items: center;">
                         <div style="text-align: right; font-size: 0.9em; opacity: 0.8;">
                             <div>Duration: ${duration}</div>
                             <div>Events: ${session.total_events || 0}</div>
                         </div>
+                            <div style="display: flex; flex-direction: column; gap: 5px;">
+                                ${session.isActive ? 
+                                    `<button onclick="app.endSession('${session.id}')" 
+                                             style="background: #e74c3c; color: white; border: none; padding: 6px 12px; 
+                                                    border-radius: 15px; cursor: pointer; font-size: 0.8em; 
+                                                    transition: all 0.3s ease;" 
+                                             onmouseover="this.style.background='#c0392b'" 
+                                             onmouseout="this.style.background='#e74c3c'">
+                                        🛑 End Session
+                                     </button>` : 
+                                    `<button onclick="app.viewSessionEvents('${session.id}')" 
+                                             style="background: #3498db; color: white; border: none; padding: 6px 12px; 
+                                                    border-radius: 15px; cursor: pointer; font-size: 0.8em;
+                                                    transition: all 0.3s ease;" 
+                                             onmouseover="this.style.background='#2980b9'" 
+                                             onmouseout="this.style.background='#3498db'">
+                                        📊 View Events
+                                     </button>`
+                                }
+                                <button onclick="app.useSessionForGaming('${session.id}', '${session.streamer_username}')" 
+                                        style="background: #9b59b6; color: white; border: none; padding: 6px 12px; 
+                                               border-radius: 15px; cursor: pointer; font-size: 0.8em;
+                                               transition: all 0.3s ease;" 
+                                        onmouseover="this.style.background='#8e44ad'" 
+                                        onmouseout="this.style.background='#9b59b6'">
+                                    🎮 Use for Gaming
+                                </button>
                     </div>
-                    <div style="margin-top: 8px; font-size: 0.9em; opacity: 0.8;">
+                        </div>
+                    </div>
+                    <div style="margin-top: 8px; font-size: 0.9em; opacity: 0.8;" onclick="app.loadSessionDetails('${session.id}')">
                         <div>Session ID: ${session.id}</div>
                         <div>Started: ${startTime}</div>
                         ${!session.isActive ? `<div>Ended: ${endTime}</div>` : ''}
@@ -471,7 +547,94 @@ class TikTokLiveApp {
             `;
         }).join('');
         
-        container.innerHTML = sessionsHtml;
+        // Add pagination controls
+        const paginationHtml = `
+            <div style="display: flex; justify-content: space-between; align-items: center; 
+                        margin-top: 20px; padding: 15px; border-top: 1px solid #ddd;">
+                <div style="font-size: 0.9em; color: #666;">
+                    Showing ${startIndex + 1}-${endIndex} of ${this.totalSessions} sessions
+                </div>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <button onclick="app.previousPage()" 
+                            ${this.currentPage === 1 ? 'disabled' : ''}
+                            style="background: ${this.currentPage === 1 ? '#ccc' : '#3498db'}; 
+                                   color: white; border: none; padding: 8px 15px; 
+                                   border-radius: 20px; cursor: ${this.currentPage === 1 ? 'not-allowed' : 'pointer'};">
+                        ← Previous
+                    </button>
+                    <span style="font-weight: bold; color: #333;">
+                        Page ${this.currentPage} of ${totalPages}
+                    </span>
+                    <button onclick="app.nextPage()" 
+                            ${this.currentPage === totalPages ? 'disabled' : ''}
+                            style="background: ${this.currentPage === totalPages ? '#ccc' : '#3498db'}; 
+                                   color: white; border: none; padding: 8px 15px; 
+                                   border-radius: 20px; cursor: ${this.currentPage === totalPages ? 'not-allowed' : 'pointer'};">
+                        Next →
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        container.innerHTML = sessionsHtml + paginationHtml;
+    }
+
+    // New interactive functions for session management
+    async loadSessionDetails(sessionId) {
+        try {
+            const response = await fetch(`${this.API_BASE}/sessions/${sessionId}`);
+            const data = await response.json();
+            
+            if (data.session) {
+                // Show detailed session info in a modal or alert
+                const session = data.session;
+                const details = `
+📋 Session Details:
+🆔 ID: ${session.id}
+👤 Streamer: @${session.streamer_username}
+📡 Room ID: ${session.room_id}
+⏰ Started: ${new Date(session.session_start).toLocaleString()}
+${session.session_end ? `⏹️ Ended: ${new Date(session.session_end).toLocaleString()}` : '🟢 Currently LIVE'}
+📊 Total Events: ${session.total_events || 0}
+💬 Messages: ${session.total_messages || 0}
+🎁 Gifts: ${session.total_gifts || 0}
+❤️ Likes: ${session.total_likes || 0}
+👥 Members: ${session.total_members || 0}
+📱 Social: ${session.total_social || 0}
+                `;
+                alert(details);
+            }
+        } catch (error) {
+            console.error('Error loading session details:', error);
+            this.showAlert('❌ Failed to load session details', 'error');
+        }
+    }
+
+    async viewSessionEvents(sessionId) {
+        // Redirect to data analytics page with this session
+        window.open(`data.html?session=${sessionId}`, '_blank');
+    }
+
+    async useSessionForGaming(sessionId, username) {
+        // Redirect to gaming page and auto-select this session
+        const gamingUrl = `gaming.html?session=${sessionId}&username=${username}`;
+        window.open(gamingUrl, '_blank');
+    }
+
+    // Pagination functions
+    previousPage() {
+        if (this.currentPage > 1) {
+            this.currentPage--;
+            this.loadSessions(); // Reload sessions with new page
+        }
+    }
+
+    nextPage() {
+        const totalPages = Math.ceil(this.totalSessions / this.sessionsPerPage);
+        if (this.currentPage < totalPages) {
+            this.currentPage++;
+            this.loadSessions(); // Reload sessions with new page
+        }
     }
 
     calculateDuration(start, end) {
@@ -768,125 +931,15 @@ The manual method always works and gives you the same result as the button!
 
     // ===== WEBHOOK METHODS =====
 
-    async loadWebhooks() {
-        try {
-            const response = await fetch(`${this.API_BASE}/webhooks`);
-            const data = await response.json();
-            this.webhooks = data.webhooks || [];
-            this.updateWebhooksList();
-        } catch (error) {
-            console.error('Error loading webhooks:', error);
-        }
-    }
 
-    async addWebhook() {
-        const urlInput = document.getElementById('webhookUrl');
-        const url = urlInput.value.trim();
-        
-        if (!url) {
-            this.showAlert('❌ Please enter a webhook URL', 'error');
-            return;
-        }
-        
-        if (!url.startsWith('http')) {
-            this.showAlert('❌ URL must start with http:// or https://', 'error');
-            return;
-        }
-        
-        try {
-            const webhookId = `webhook_${Date.now()}`;
-            const response = await fetch(`${this.API_BASE}/webhooks`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    id: webhookId,
-                    url: url,
-                    events: ['all']
-                })
-            });
-            
-            const result = await response.json();
-            
-            if (result.success) {
-                urlInput.value = '';
-                this.loadWebhooks();
-                this.showAlert('✅ Webhook added successfully', 'success');
-            } else {
-                throw new Error(result.error || 'Failed to add webhook');
-            }
-        } catch (error) {
-            console.error('Error adding webhook:', error);
-            this.showAlert(`❌ Failed to add webhook: ${error.message}`, 'error');
-        }
-    }
 
-    async removeWebhook(webhookId) {
-        try {
-            const response = await fetch(`${this.API_BASE}/webhooks/${webhookId}`, {
-                method: 'DELETE'
-            });
-            
-            const result = await response.json();
-            
-            if (result.success) {
-                this.loadWebhooks();
-                this.showAlert('✅ Webhook removed', 'success');
-            } else {
-                throw new Error(result.error || 'Failed to remove webhook');
-            }
-        } catch (error) {
-            console.error('Error removing webhook:', error);
-            this.showAlert(`❌ Failed to remove webhook: ${error.message}`, 'error');
-        }
-    }
 
-    async testWebhooks() {
-        try {
-            const response = await fetch(`${this.API_BASE}/test-webhook`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    testData: {
-                        message: 'Test webhook from TikTok Live Connector',
-                        timestamp: new Date().toISOString(),
-                        testType: 'manual'
-                    }
-                })
-            });
-            
-            const result = await response.json();
-            
-            if (result.results) {
-                const successCount = result.results.filter(r => r.success).length;
-                const totalCount = result.results.length;
-                this.showAlert(`📡 Webhook test complete: ${successCount}/${totalCount} successful`, 'info');
-            } else {
-                this.showAlert('📡 Webhook test sent', 'info');
-            }
-        } catch (error) {
-            console.error('Error testing webhooks:', error);
-            this.showAlert(`❌ Webhook test failed: ${error.message}`, 'error');
-        }
-    }
 
-    updateWebhooksList() {
-        const container = document.getElementById('webhooksList');
-        
-        if (this.webhooks.length === 0) {
-            container.innerHTML = '<div style="text-align: center; color: rgba(255,255,255,0.5); padding: 15px;">No webhooks configured</div>';
-            return;
-        }
-        
-        const webhooksHtml = this.webhooks.map(webhook => `
-            <div class="webhook-item">
-                <div class="webhook-url">${webhook.url}</div>
-                <div class="webhook-status ${webhook.errors > 0 ? 'error' : ''}">${webhook.totalSent} sent</div>
-                <button class="btn btn-secondary" onclick="app.removeWebhook('${webhook.id}')" style="padding: 4px 8px; font-size: 12px;">🗑️</button>
-            </div>
-        `).join('');
-        
-        container.innerHTML = webhooksHtml;
-    }
+
+
+
+
+
 }
 
 // Global functions for HTML onclick handlers
@@ -904,13 +957,7 @@ function openPublicUrl() {
     app.openPublicUrl();
 }
 
-function addWebhook() {
-    app.addWebhook();
-}
 
-function testWebhooks() {
-    app.testWebhooks();
-}
 
 function showManualNgrok() {
     app.showManualNgrok();

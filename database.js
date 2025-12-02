@@ -58,6 +58,13 @@ class Database {
                 FOREIGN KEY (session_id) REFERENCES sessions (id)
             )`);
 
+            // Game settings table
+            this.db.run(`CREATE TABLE IF NOT EXISTS game_settings (
+                id INTEGER PRIMARY KEY,
+                settings TEXT NOT NULL,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )`);
+
             // Streamers table (for historical data)
             this.db.run(`CREATE TABLE IF NOT EXISTS streamers (
                 username TEXT PRIMARY KEY,
@@ -351,6 +358,22 @@ class Database {
     }
 
     // Streamer Management
+    getStreamer(username) {
+        return new Promise((resolve, reject) => {
+            this.db.get(`
+                SELECT username, display_name, follower_count, bio, profile_image, total_sessions, total_events_captured
+                FROM streamers 
+                WHERE username = ?
+            `, [username], (err, row) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(row);
+                }
+            });
+        });
+    }
+    
     upsertStreamer(username, streamerData) {
         return new Promise((resolve, reject) => {
             const stmt = this.db.prepare(`
@@ -405,6 +428,43 @@ class Database {
                     resolve(row);
                 }
             });
+        });
+    }
+
+    // Game Settings Methods
+    saveGameSettings(settings) {
+        return new Promise((resolve, reject) => {
+            this.db.run(
+                `INSERT OR REPLACE INTO game_settings (id, settings, updated_at) VALUES (?, ?, ?)`,
+                [1, JSON.stringify(settings), new Date().toISOString()],
+                function(err) {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve(this.changes);
+                    }
+                }
+            );
+        });
+    }
+
+    getGameSettings() {
+        return new Promise((resolve, reject) => {
+            this.db.get(
+                `SELECT settings FROM game_settings WHERE id = 1`,
+                [],
+                (err, row) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        if (row) {
+                            resolve(JSON.parse(row.settings));
+                        } else {
+                            resolve(null);
+                        }
+                    }
+                }
+            );
         });
     }
 

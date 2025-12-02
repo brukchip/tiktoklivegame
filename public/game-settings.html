@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎮 Game Settings - TikTok Live Gaming</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+
+        .nav-link {
+            background: rgba(255,255,255,0.1);
+            color: white;
+            text-decoration: none;
+            padding: 12px 20px;
+            border-radius: 25px;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .nav-link:hover {
+            background: rgba(255,255,255,0.2);
+            transform: translateY(-2px);
+        }
+
+        .settings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+
+        .settings-card {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            border: 1px solid rgba(255,255,255,0.2);
+            box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
+        }
+
+        .settings-card h3 {
+            font-size: 1.4em;
+            margin-bottom: 20px;
+            color: #FFD700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .setting-group {
+            margin-bottom: 20px;
+        }
+
+        .setting-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #E8E8E8;
+        }
+
+        .setting-input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 8px;
+            background: rgba(255,255,255,0.1);
+            color: white;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .setting-input:focus {
+            outline: none;
+            border-color: #FFD700;
+            background: rgba(255,255,255,0.15);
+        }
+
+        .setting-input::placeholder {
+            color: rgba(255,255,255,0.6);
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: #FFD700;
+        }
+
+        .range-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .range-input {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: rgba(255,255,255,0.3);
+            outline: none;
+            accent-color: #FFD700;
+        }
+
+        .range-value {
+            text-align: center;
+            font-weight: bold;
+            color: #FFD700;
+            font-size: 16px;
+        }
+
+        .color-picker {
+            width: 60px;
+            height: 40px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        .btn {
+            background: linear-gradient(45deg, #FFD700, #FF8C00);
+            color: #333;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(255, 215, 0, 0.3);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .save-section {
+            text-align: center;
+            margin-top: 30px;
+            padding: 25px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+        }
+
+        .save-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            border-radius: 10px;
+            font-weight: bold;
+            z-index: 1000;
+            transform: translateX(400px);
+            transition: transform 0.3s ease;
+        }
+
+        .notification.show {
+            transform: translateX(0);
+        }
+
+        .notification.success {
+            background: #27ae60;
+            color: white;
+        }
+
+        .notification.error {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .notification.info {
+            background: #3498db;
+            color: white;
+        }
+
+        @media (max-width: 768px) {
+            .settings-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .container {
+                padding: 10px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎮 Game Settings & Configuration</h1>
+            <p>Customize your gaming experience with advanced settings</p>
+        </div>
+
+        <div class="nav-links">
+            <a href="index.html" class="nav-link">🏠 Dashboard</a>
+            <a href="gaming.html" class="nav-link">🎮 Gaming Hub</a>
+            <a href="data.html" class="nav-link">📊 Analytics</a>
+        </div>
+
+        <div class="settings-grid">
+            <!-- Lucky Wheel Settings -->
+            <div class="settings-card">
+                <h3>🎰 Lucky Wheel Settings</h3>
+                
+                <div class="setting-group">
+                    <label>Collection Duration (seconds)</label>
+                    <div class="range-group">
+                        <input type="range" id="wheelDuration" class="range-input" min="5" max="60" value="10">
+                        <div class="range-value" id="wheelDurationValue">10 seconds</div>
+                    </div>
+                </div>
+
+                <div class="setting-group">
+                    <label>Entry Keyword</label>
+                    <input type="text" id="wheelKeyword" class="setting-input" value="GAME" placeholder="Enter keyword for entries">
+                </div>
+
+                <div class="setting-group">
+                    <label>Wheel Colors</label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="color" id="wheelColor1" class="color-picker" value="#FF6B6B">
+                        <input type="color" id="wheelColor2" class="color-picker" value="#4ECDC4">
+                        <input type="color" id="wheelColor3" class="color-picker" value="#45B7D1">
+                        <input type="color" id="wheelColor4" class="color-picker" value="#96CEB4">
+                    </div>
+                </div>
+
+                <div class="checkbox-group">
+                    <input type="checkbox" id="wheelSound" checked>
+                    <label>Enable Sound Effects</label>
+                </div>
+
+                <div class="checkbox-group">
+                    <input type="checkbox" id="wheelConfetti" checked>
+                    <label>Enable Confetti Animation</label>
+                </div>
+
+                <div class="setting-group">
+                    <label>Spin Duration (seconds)</label>
+                    <div class="range-group">
+                        <input type="range" id="wheelSpinDuration" class="range-input" min="2" max="8" value="4">
+                        <div class="range-value" id="wheelSpinDurationValue">4 seconds</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Poll Game Settings -->
+            <div class="settings-card">
+                <h3>📊 Poll Game Settings</h3>
+                
+                <div class="setting-group">
+                    <label>Poll Duration (seconds)</label>
+                    <div class="range-group">
+                        <input type="range" id="pollDuration" class="range-input" min="10" max="300" value="30">
+                        <div class="range-value" id="pollDurationValue">30 seconds</div>
+                    </div>
+                </div>
+
+                <div class="setting-group">
+                    <label>Maximum Options</label>
+                    <div class="range-group">
+                        <input type="range" id="pollMaxOptions" class="range-input" min="2" max="8" value="4">
+                        <div class="range-value" id="pollMaxOptionsValue">4 options</div>
+                    </div>
+                </div>
+
+                <div class="checkbox-group">
+                    <input type="checkbox" id="pollCaseSensitive">
+                    <label>Case Sensitive Voting</label>
+                </div>
+
+                <div class="checkbox-group">
+                    <input type="checkbox" id="pollShowLive" checked>
+                    <label>Show Live Results</label>
+                </div>
+
+                <div class="setting-group">
+                    <label>Poll Theme Color</label>
+                    <input type="color" id="pollThemeColor" class="color-picker" value="#3498db">
+                </div>
+            </div>
+
+            <!-- Race Game Settings -->
+            <div class="settings-card">
+                <h3>🏁 Race Game Settings</h3>
+                
+                <div class="setting-group">
+                    <label>Race Duration (seconds)</label>
+                    <div class="range-group">
+                        <input type="range" id="raceDuration" class="range-input" min="30" max="300" value="60">
+                        <div class="range-value" id="raceDurationValue">60 seconds</div>
+                    </div>
+                </div>
+
+                <div class="setting-group">
+                    <label>Maximum Racers</label>
+                    <div class="range-group">
+                        <input type="range" id="raceMaxRacers" class="range-input" min="5" max="50" value="20">
+                        <div class="range-value" id="raceMaxRacersValue">20 racers</div>
+                    </div>
+                </div>
+
+                <div class="setting-group">
+                    <label>Entry Keyword</label>
+                    <input type="text" id="raceKeyword" class="setting-input" value="RACE" placeholder="Enter keyword for race entries">
+                </div>
+
+                <div class="checkbox-group">
+                    <input type="checkbox" id="raceAnimation" checked>
+                    <label>Enable Race Animation</label>
+                </div>
+
+                <div class="checkbox-group">
+                    <input type="checkbox" id="raceLeaderboard" checked>
+                    <label>Show Live Leaderboard</label>
+                </div>
+            </div>
+
+            <!-- General Game Settings -->
+            <div class="settings-card">
+                <h3>⚙️ General Settings</h3>
+                
+                <div class="setting-group">
+                    <label>Master Volume</label>
+                    <div class="range-group">
+                        <input type="range" id="masterVolume" class="range-input" min="0" max="100" value="70">
+                        <div class="range-value" id="masterVolumeValue">70%</div>
+                    </div>
+                </div>
+
+                <div class="checkbox-group">
+                    <input type="checkbox" id="autoSave">
+                    <label>Auto-save Settings (Disabled by default - use Save button below)</label>
+                </div>
+
+                <div class="checkbox-group">
+                    <input type="checkbox" id="showNotifications" checked>
+                    <label>Show Game Notifications</label>
+                </div>
+
+                <div class="setting-group">
+                    <label>Default Game Mode</label>
+                    <select id="defaultGameMode" class="setting-input">
+                        <option value="luckywheel">Lucky Wheel</option>
+                        <option value="poll">Poll Game</option>
+                        <option value="race">Race Game</option>
+                    </select>
+                </div>
+
+                <div class="setting-group">
+                    <label>Celebration Duration (seconds)</label>
+                    <div class="range-group">
+                        <input type="range" id="celebrationDuration" class="range-input" min="3" max="15" value="8">
+                        <div class="range-value" id="celebrationDurationValue">8 seconds</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat Integration Settings -->
+            <div class="settings-card">
+                <h3>💬 Chat Integration</h3>
+                
+                <div class="checkbox-group">
+                    <input type="checkbox" id="chatFiltering" checked>
+                    <label>Enable Chat Filtering</label>
+                </div>
+
+                <div class="setting-group">
+                    <label>Minimum Username Length</label>
+                    <div class="range-group">
+                        <input type="range" id="minUsernameLength" class="range-input" min="1" max="10" value="3">
+                        <div class="range-value" id="minUsernameLengthValue">3 characters</div>
+                    </div>
+                </div>
+
+                <div class="checkbox-group">
+                    <input type="checkbox" id="duplicateEntries">
+                    <label>Allow Duplicate Entries</label>
+                </div>
+
+                <div class="setting-group">
+                    <label>Cooldown Between Entries (seconds)</label>
+                    <div class="range-group">
+                        <input type="range" id="entryCooldown" class="range-input" min="0" max="30" value="5">
+                        <div class="range-value" id="entryCooldownValue">5 seconds</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Theme & Appearance -->
+            <div class="settings-card">
+                <h3>🎨 Theme & Appearance</h3>
+                
+                <div class="setting-group">
+                    <label>Gaming Theme</label>
+                    <select id="gamingTheme" class="setting-input">
+                        <option value="neon">Neon Glow</option>
+                        <option value="retro">Retro Arcade</option>
+                        <option value="modern">Modern Sleek</option>
+                        <option value="cyberpunk">Cyberpunk</option>
+                    </select>
+                </div>
+
+                <div class="setting-group">
+                    <label>Primary Theme Color</label>
+                    <input type="color" id="primaryThemeColor" class="color-picker" value="#FFD700">
+                </div>
+
+                <div class="setting-group">
+                    <label>Secondary Theme Color</label>
+                    <input type="color" id="secondaryThemeColor" class="color-picker" value="#FF6B6B">
+                </div>
+
+                <div class="checkbox-group">
+                    <input type="checkbox" id="darkMode" checked>
+                    <label>Dark Mode</label>
+                </div>
+
+                <div class="checkbox-group">
+                    <input type="checkbox" id="animations" checked>
+                    <label>Enable Animations</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="save-section">
+            <h3>💾 Save & Manage Settings</h3>
+            <p>⚠️ Settings are NOT auto-saved! Click "Save Settings" button to save your changes.</p>
+            
+            <div class="save-buttons">
+                <button class="btn" onclick="saveSettings()" style="font-size: 18px; padding: 15px 30px; background: linear-gradient(45deg, #27ae60, #2ecc71); box-shadow: 0 4px 15px rgba(39, 174, 96, 0.4);">
+                    💾 SAVE ALL SETTINGS
+                </button>
+                <button class="btn btn-secondary" onclick="loadDefaultSettings()">🔄 Reset to Defaults</button>
+                <button class="btn btn-secondary" onclick="exportSettings()">📤 Export Config</button>
+                <button class="btn btn-secondary" onclick="importSettings()">📥 Import Config</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification container -->
+    <div id="notification" class="notification"></div>
+
+    <!-- Hidden file input for import -->
+    <input type="file" id="importFile" accept=".json" style="display: none;" onchange="handleFileImport(event)">
+
+    <script src="game-settings.js"></script>
+</body>
+</html>

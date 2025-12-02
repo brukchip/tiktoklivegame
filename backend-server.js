@@ -1,16 +1,19 @@
 #!/usr/bin/env node
 
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
 const Database = require('./database');
 const NgrokManager = require('./ngrok-manager');
+const GamingSystem = require('./gaming-system');
 const { TikTokLiveConnection, WebcastEvent, ControlEvent } = require('./dist/index');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const db = new Database();
 const ngrokManager = new NgrokManager();
+const gamingSystem = new GamingSystem(db);
 
 // Store active connections and sessions
 const activeSessions = new Map();
@@ -53,20 +56,19 @@ app.post('/api/sessions', async (req, res) => {
             fetchRoomInfoOnConnect: true
         });
 
-        // Check if user is live first
+        // Check if user is live first (with fallback)
+        let isLive = false;
         try {
-            const isLive = await connection.fetchIsLive();
+            isLive = await connection.fetchIsLive();
             if (!isLive) {
-                return res.status(400).json({ 
-                    error: `@${username} is not currently live`,
-                    suggestion: 'Try with a different username or wait for them to go live'
-                });
+                console.log(`⚠️ @${username} might not be live, but attempting connection anyway...`);
+                // Don't return error immediately - try to connect anyway
+                // Some users might have privacy settings that block live status checks
             }
         } catch (error) {
-            return res.status(400).json({ 
-                error: 'Failed to check live status',
-                details: error.message
-            });
+            console.log(`⚠️ Could not check live status for @${username}:`, error.message);
+            console.log(`🔄 Attempting to connect anyway...`);
+            // Continue with connection attempt even if live status check fails
         }
 
         // Session data
@@ -153,8 +155,24 @@ app.post('/api/sessions', async (req, res) => {
             
             console.error(`❌ Failed to connect session ${sessionId}:`, error.message);
             
+            // Provide helpful error messages based on error type
+            let userFriendlyError = 'Failed to connect to live stream';
+            let suggestion = 'Please try again in a few moments';
+            
+            if (error.message.includes('not found') || error.message.includes('404')) {
+                userFriendlyError = `@${username} not found or not currently live`;
+                suggestion = 'Check the username spelling or wait for them to go live';
+            } else if (error.message.includes('rate limit') || error.message.includes('429')) {
+                userFriendlyError = 'Too many requests - rate limited';
+                suggestion = 'Please wait a few minutes before trying again';
+            } else if (error.message.includes('timeout')) {
+                userFriendlyError = 'Connection timeout';
+                suggestion = 'Check your internet connection and try again';
+            }
+            
             res.status(500).json({
-                error: 'Failed to connect to live stream',
+                error: userFriendlyError,
+                suggestion: suggestion,
                 details: error.message
             });
         }
@@ -267,12 +285,16 @@ app.delete('/api/sessions/:sessionId', async (req, res) => {
         console.log(`🔚 Session ${sessionId} ended`);
         
         res.json({ 
+            success: true,
             message: 'Session ended successfully',
             sessionId
         });
     } catch (error) {
         console.error('Error ending session:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ 
+            success: false, 
+            error: 'Internal server error' 
+        });
     }
 });
 
@@ -368,9 +390,11 @@ function setupEventHandlers(connection, sessionId, sessionData) {
     connection.on(ControlEvent.DISCONNECTED, async () => {
         console.log(`🔌 Session ${sessionId} disconnected`);
         sessionData.status = 'disconnected';
-        await db.endSession(sessionId);
-        activeSessions.delete(sessionId);
-        activeConnections.delete(sessionId);
+        // Don't auto-end sessions on disconnect - only update status
+        // Sessions should only be ended manually via the API
+        // await db.endSession(sessionId);  // Commented out to prevent auto-ending
+        // activeSessions.delete(sessionId);  // Keep session data for potential reconnection
+        activeConnections.delete(sessionId); // Only remove the connection
     });
 
     connection.on(ControlEvent.ERROR, async (err) => {
@@ -392,6 +416,29 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             username: data.user.uniqueId,
             message: data.comment,
             timestamp: new Date().toISOString(),
+            
+            // Enhanced user profile data with corrected profile picture extraction
+            userProfile: {
+                nickname: data.user.nickname,
+                bio: data.user.bioDescription,
+                // Fix: TikTok stores profile pictures in .url array, not .url_list
+                profilePicture: data.user.profilePicture?.url?.[0] || data.user.profilePicture?.url_list?.[0],
+                profilePictureMedium: data.user.profilePictureMedium?.url?.[0] || data.user.profilePictureMedium?.url_list?.[0],
+                profilePictureLarge: data.user.profilePictureLarge?.url?.[0] || data.user.profilePictureLarge?.url_list?.[0],
+                verified: data.user.verified,
+                followerCount: data.user.followInfo?.followerCount,
+                followingCount: data.user.followInfo?.followingCount,
+                payGrade: data.user.payGrade?.name,
+                payLevel: data.user.payGrade?.level,
+                fanTicketCount: data.user.fanTicketCount,
+                badges: data.user.badges?.map(badge => ({
+                    type: badge.badgeDisplayType,
+                    text: badge.text?.defaultPattern,
+                    image: badge.image?.image?.url_list?.[0]
+                })),
+                border: data.user.border?.image?.url_list?.[0]
+            },
+            
             raw: data
         };
         
@@ -401,6 +448,37 @@ function setupEventHandlers(connection, sessionId, sessionData) {
         
         await db.addEvent(sessionId, 'chat', event);
         await db.updateSessionCounters(sessionId, 'chat');
+
+        // ===== GAMING SYSTEM INTEGRATION =====
+        // Check if this chat message should be processed by gaming system
+        const username = data.user.uniqueId;
+        const message = data.comment;
+
+        // Lucky Wheel - check for configured keyword messages with profile picture capture
+        if (gamingSystem.addLuckyWheelEntry(sessionId, username, message, event.userProfile)) {
+            const activeGame = gamingSystem.getActiveGame(sessionId);
+            const keyword = activeGame && activeGame.type === 'luckywheel' ? activeGame.keyword : 'GAME';
+            console.log(`🎰 Gaming: ${username} entered Lucky Wheel with message: "${message}" (keyword: ${keyword})`);
+            
+            // Enhanced debugging for profile pictures
+            if (event.userProfile) {
+                console.log(`🖼️ Profile data for ${username}:`);
+                console.log(`   profilePicture: ${event.userProfile.profilePicture || 'null'}`);
+                console.log(`   profilePictureMedium: ${event.userProfile.profilePictureMedium || 'null'}`);
+                console.log(`   profilePictureLarge: ${event.userProfile.profilePictureLarge || 'null'}`);
+                console.log(`   raw data keys:`, Object.keys(data.user));
+            }
+        }
+
+        // Poll - check for voting keywords
+        if (gamingSystem.addPollVote(sessionId, username, message)) {
+            console.log(`🗳️ Gaming: ${username} voted in poll with message: "${message}"`);
+        }
+
+        // Race - add participant movement
+        if (gamingSystem.addRaceParticipant(sessionId, username, message)) {
+            console.log(`🏁 Gaming: ${username} moved in race with message: "${message}"`);
+        }
     });
 
     connection.on(WebcastEvent.GIFT, async (data) => {
@@ -413,6 +491,18 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             repeatCount: data.repeatCount,
             repeatEnd: data.repeatEnd,
             timestamp: new Date().toISOString(),
+            
+            // Enhanced user profile data
+            userProfile: {
+                nickname: data.user.nickname,
+                profilePicture: data.user.profilePicture?.url?.[0] || data.user.profilePicture?.url_list?.[0],
+                verified: data.user.verified,
+                followerCount: data.user.followInfo?.followerCount,
+                payGrade: data.user.payGrade?.name,
+                payLevel: data.user.payGrade?.level,
+                fanTicketCount: data.user.fanTicketCount
+            },
+            
             raw: data
         };
         
@@ -427,8 +517,8 @@ function setupEventHandlers(connection, sessionId, sessionData) {
     connection.on(WebcastEvent.MEMBER, async (data) => {
         const event = {
             type: 'member',
-            userId: data.user.userId,
-            username: data.user.uniqueId,
+            userId: data.user?.userId || 'unknown',
+            username: data.user?.uniqueId || 'unknown',
             action: 'joined',
             timestamp: new Date().toISOString(),
             raw: data
@@ -450,6 +540,16 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             likeCount: data.likeCount,
             totalLikeCount: data.totalLikeCount,
             timestamp: new Date().toISOString(),
+            
+            // Enhanced user profile data
+            userProfile: {
+                nickname: data.user.nickname,
+                profilePicture: data.user.profilePicture?.url?.[0] || data.user.profilePicture?.url_list?.[0],
+                verified: data.user.verified,
+                followerCount: data.user.followInfo?.followerCount,
+                payGrade: data.user.payGrade?.name
+            },
+            
             raw: data
         };
         
@@ -469,6 +569,16 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             username: data.user.uniqueId,
             action: 'followed',
             timestamp: new Date().toISOString(),
+            
+            // Enhanced user profile data
+            userProfile: {
+                nickname: data.user.nickname,
+                profilePicture: data.user.profilePicture?.url?.[0] || data.user.profilePicture?.url_list?.[0],
+                verified: data.user.verified,
+                followerCount: data.user.followInfo?.followerCount,
+                payGrade: data.user.payGrade?.name
+            },
+            
             raw: data
         };
         
@@ -822,6 +932,969 @@ function setupEventHandlers(connection, sessionId, sessionData) {
     });
 }
 
+// ===== USER PROFILE API ENDPOINTS =====
+
+// 2. Get Session Participants
+app.get('/api/sessions/:sessionId/participants', async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        const { limit = 50 } = req.query;
+        
+        console.log('👥 Fetching participants for session:', sessionId);
+        
+        const session = activeSessions.get(sessionId);
+        if (!session) {
+            return res.status(404).json({
+                success: false,
+                error: 'Session not found'
+            });
+        }
+        
+        // Collect unique participants from events
+        const participantsMap = new Map();
+        
+        session.events.forEach(event => {
+            if (event.userId && event.username) {
+                const participant = {
+                    userId: event.userId,
+                    username: event.username,
+                    firstSeen: participantsMap.has(event.userId) ? 
+                        participantsMap.get(event.userId).firstSeen : event.timestamp,
+                    lastSeen: event.timestamp,
+                    eventCount: (participantsMap.get(event.userId)?.eventCount || 0) + 1,
+                    eventTypes: new Set(participantsMap.get(event.userId)?.eventTypes || [])
+                };
+                
+                participant.eventTypes.add(event.type);
+                
+                // Add profile data if available in raw event
+                if (event.raw?.user) {
+                    const user = event.raw.user;
+                    participant.profile = {
+                        nickname: user.nickname,
+                        profilePicture: user.profilePicture?.url_list?.[0],
+                        verified: user.verified,
+                        followerCount: user.followInfo?.followerCount,
+                        payGrade: user.payGrade?.name
+                    };
+                }
+                
+                participantsMap.set(event.userId, {
+                    ...participant,
+                    eventTypes: Array.from(participant.eventTypes)
+                });
+            }
+        });
+        
+        // Convert to array and sort by event count
+        const participants = Array.from(participantsMap.values())
+            .sort((a, b) => b.eventCount - a.eventCount)
+            .slice(0, parseInt(limit));
+        
+        res.json({
+            success: true,
+            sessionId,
+            participants,
+            totalUniqueParticipants: participantsMap.size,
+            isActive: session.status === 'connected'
+        });
+        
+    } catch (error) {
+        console.error('Error fetching session participants:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Internal server error'
+        });
+    }
+});
+
+// 3. Get User Activity in Session
+app.get('/api/sessions/:sessionId/users/:userId/activity', async (req, res) => {
+    try {
+        const { sessionId, userId } = req.params;
+        const { limit = 100 } = req.query;
+        
+        console.log('📊 Fetching user activity for:', userId, 'in session:', sessionId);
+        
+        const session = activeSessions.get(sessionId);
+        if (!session) {
+            return res.status(404).json({
+                success: false,
+                error: 'Session not found'
+            });
+        }
+        
+        // Filter events for this specific user
+        const userEvents = session.events
+            .filter(event => event.userId === userId)
+            .slice(-parseInt(limit))
+            .reverse(); // Most recent first
+        
+        if (userEvents.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: 'No activity found for this user in this session'
+            });
+        }
+        
+        // Generate activity statistics
+        const activityStats = {
+            totalEvents: userEvents.length,
+            eventTypes: {},
+            firstActivity: userEvents[userEvents.length - 1].timestamp,
+            lastActivity: userEvents[0].timestamp
+        };
+        
+        userEvents.forEach(event => {
+            activityStats.eventTypes[event.type] = 
+                (activityStats.eventTypes[event.type] || 0) + 1;
+        });
+        
+        // Get user profile from most recent event
+        let userProfile = null;
+        const latestEventWithProfile = userEvents.find(event => event.raw?.user);
+        if (latestEventWithProfile?.raw?.user) {
+            const user = latestEventWithProfile.raw.user;
+            userProfile = {
+                nickname: user.nickname,
+                profilePicture: user.profilePicture?.url_list?.[0],
+                verified: user.verified,
+                followerCount: user.followInfo?.followerCount,
+                payGrade: user.payGrade?.name
+            };
+        }
+        
+        res.json({
+            success: true,
+            sessionId,
+            userId,
+            username: userEvents[0].username,
+            profile: userProfile,
+            activity: userEvents,
+            stats: activityStats
+        });
+        
+    } catch (error) {
+        console.error('Error fetching user activity:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Internal server error'
+        });
+    }
+});
+
+// 4. Batch User Profiles
+app.post('/api/users/profiles/batch', async (req, res) => {
+    try {
+        const { userIds } = req.body;
+        
+        if (!userIds || !Array.isArray(userIds)) {
+            return res.status(400).json({
+                success: false,
+                error: 'userIds array is required'
+            });
+        }
+        
+        console.log('👥 Fetching batch profiles for:', userIds.length, 'users');
+        
+        const profiles = {};
+        const notFound = [];
+        
+        // Search through all active sessions for user data
+        for (const userId of userIds) {
+            let found = false;
+            
+            for (const [sessionId, session] of activeSessions) {
+                const userEvents = session.events.filter(event => event.userId === userId);
+                
+                if (userEvents.length > 0) {
+                    const latestEvent = userEvents[userEvents.length - 1];
+                    
+                    if (latestEvent.raw?.user) {
+                        const user = latestEvent.raw.user;
+                        profiles[userId] = {
+                            userId: user.userId,
+                            username: user.uniqueId,
+                            nickname: user.nickname,
+                            profilePicture: user.profilePicture?.url_list?.[0],
+                            verified: user.verified,
+                            followerCount: user.followInfo?.followerCount,
+                            payGrade: user.payGrade?.name,
+                            lastSeen: latestEvent.timestamp,
+                            sessionId: sessionId
+                        };
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (!found) {
+                notFound.push(userId);
+            }
+        }
+        
+        res.json({
+            success: true,
+            profiles,
+            notFound,
+            found: Object.keys(profiles).length,
+            requested: userIds.length
+        });
+        
+    } catch (error) {
+        console.error('Error fetching batch profiles:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Internal server error'
+        });
+    }
+});
+
+// ===== UNIFIED USER PROFILE API =====
+
+// Get User Profile Picture (unified endpoint)
+app.get('/api/users/:userId/profile', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        console.log('🖼️ Fetching profile for user:', userId);
+        
+        // Method 1: Check active TikTok sessions for this user
+        for (const [sessionId, session] of activeSessions) {
+            if (session.streamerUsername === userId || session.streamerUsername === `@${userId}`) {
+                if (session.roomInfo?.owner) {
+                    const owner = session.roomInfo.owner;
+                    const profilePic = owner.avatarLarger || owner.avatarMedium || owner.avatarThumb;
+                    
+                    if (profilePic) {
+                        console.log('✅ Found profile in active session:', profilePic);
+                        return res.json({
+                            success: true,
+                            profilePicture: profilePic,
+                            source: 'active_session',
+                            username: owner.displayName || owner.uniqueId
+                        });
+                    }
+                }
+            }
+        }
+        
+        // Method 1.5: Check database for any session with this streamer
+        try {
+            const sessions = await db.getAllSessions();
+            for (const session of sessions) {
+                if (session.streamer_username === userId || session.streamer_username === `@${userId}`) {
+                    // Try to get streamer data from database
+                    const streamerData = await db.getStreamer(userId);
+                    if (streamerData && streamerData.profileImage) {
+                        console.log('✅ Found profile in database session:', streamerData.profileImage);
+                        return res.json({
+                            success: true,
+                            profilePicture: streamerData.profileImage,
+                            source: 'database_session',
+                            username: streamerData.displayName || userId
+                        });
+                    }
+                }
+            }
+        } catch (error) {
+            console.log('⚠️ Database session lookup failed:', error.message);
+        }
+        
+        // Method 2: Check database for stored profile
+        try {
+            const streamerData = await db.getStreamer(userId);
+            if (streamerData && streamerData.profileImage) {
+                console.log('✅ Found profile in database:', streamerData.profileImage);
+                return res.json({
+                    success: true,
+                    profilePicture: streamerData.profileImage,
+                    source: 'database',
+                    username: streamerData.displayName || userId
+                });
+            }
+        } catch (error) {
+            console.log('⚠️ Database lookup failed:', error.message);
+        }
+        
+        // Method 3: Try direct TikTok API
+        try {
+            const tempConnection = new TikTokLiveConnection(userId);
+            const roomInfo = await tempConnection.getRoomInfo();
+            
+            if (roomInfo?.owner) {
+                const profilePic = roomInfo.owner.avatarLarger || 
+                                 roomInfo.owner.avatarMedium ||
+                                 roomInfo.owner.avatarThumb;
+                
+                if (profilePic) {
+                    console.log('✅ Found profile via TikTok API:', profilePic);
+                    return res.json({
+                        success: true,
+                        profilePicture: profilePic,
+                        source: 'tiktok_api',
+                        username: roomInfo.owner.displayName || roomInfo.owner.uniqueId
+                    });
+                }
+            }
+        } catch (error) {
+            console.log('❌ TikTok API failed:', error.message);
+        }
+        
+        // No profile found
+        console.log('⚠️ No profile picture found for:', userId);
+        res.json({
+            success: false,
+            error: 'Profile picture not found'
+        });
+        
+    } catch (error) {
+        console.error('Error fetching user profile:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Internal server error'
+        });
+    }
+});
+
+// ===== TIKTOK PROFILE PICTURE API =====
+
+// Legacy endpoint (keep for compatibility)
+app.get('/api/tiktok/profile/:username', async (req, res) => {
+    try {
+        const { username } = req.params;
+        console.log('🖼️ Fetching TikTok profile picture for:', username);
+        
+        // Try to get profile picture from active sessions first
+        for (const [sessionId, session] of activeSessions) {
+            const sessionUsername = session.streamerUsername?.replace('@', '');
+            const requestUsername = username.replace('@', '');
+            
+            if (sessionUsername === requestUsername) {
+                console.log('📡 Found matching session for username:', username);
+                
+                // Check if we have room info with profile data
+                if (session.roomInfo?.owner) {
+                    const owner = session.roomInfo.owner;
+                    const profilePic = owner.avatarLarger || owner.avatarMedium || owner.avatarThumb;
+                    
+                    if (profilePic) {
+                        console.log('✅ Found profile picture in session data:', profilePic);
+                        return res.json({
+                            success: true,
+                            profilePicture: profilePic,
+                            source: 'session_data',
+                            username: owner.displayName || owner.uniqueId
+                        });
+                    }
+                }
+                
+                // Also check if we stored profile info in session
+                if (session.profilePicture) {
+                    console.log('✅ Found cached profile picture');
+                    return res.json({
+                        success: true,
+                        profilePicture: session.profilePicture,
+                        source: 'cached'
+                    });
+                }
+            }
+        }
+        
+        // If not found in active sessions, try to make a direct TikTok request
+        try {
+            const tempConnection = new TikTokLiveConnection(username);
+            
+            // Get room info without connecting
+            const roomInfo = await tempConnection.getRoomInfo();
+            if (roomInfo?.owner) {
+                const profilePic = roomInfo.owner.avatarLarger || 
+                                 roomInfo.owner.avatarMedium ||
+                                 roomInfo.owner.avatarThumb;
+                
+                if (profilePic) {
+                    console.log('✅ Found profile picture via direct TikTok API');
+                    return res.json({
+                        success: true,
+                        profilePicture: profilePic,
+                        source: 'tiktok_api'
+                    });
+                }
+            }
+        } catch (error) {
+            console.log('❌ Direct TikTok API failed:', error.message);
+        }
+        
+        // No profile picture found
+        console.log('⚠️ No profile picture found for:', username);
+        res.json({
+            success: false,
+            error: 'Profile picture not found'
+        });
+        
+    } catch (error) {
+        console.error('Error fetching TikTok profile:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Internal server error'
+        });
+    }
+});
+
+// ===== DEBUG ENDPOINTS =====
+
+// Debug endpoint to inspect actual TikTok event data
+app.get('/api/debug/session/:sessionId/events/raw', async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        const { limit = 10 } = req.query;
+        
+        const session = activeSessions.get(sessionId);
+        if (!session) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
+        
+        // Get recent chat events with full raw data
+        const chatEvents = session.events
+            .filter(event => event.type === 'chat')
+            .slice(-parseInt(limit))
+            .map(event => ({
+                username: event.username,
+                message: event.message,
+                timestamp: event.timestamp,
+                userProfile: event.userProfile,
+                rawUserKeys: Object.keys(event.raw?.user || {}),
+                rawUser: event.raw?.user ? {
+                    userId: event.raw.user.userId,
+                    uniqueId: event.raw.user.uniqueId,
+                    nickname: event.raw.user.nickname,
+                    profilePicture: event.raw.user.profilePicture,
+                    profilePictureMedium: event.raw.user.profilePictureMedium,
+                    profilePictureLarge: event.raw.user.profilePictureLarge,
+                    avatarThumb: event.raw.user.avatarThumb,
+                    verified: event.raw.user.verified
+                } : null
+            }));
+        
+        res.json({
+            success: true,
+            sessionId,
+            totalChatEvents: session.events.filter(e => e.type === 'chat').length,
+            recentEvents: chatEvents,
+            sessionRoomInfo: session.roomInfo ? {
+                owner: session.roomInfo.owner ? {
+                    displayName: session.roomInfo.owner.displayName,
+                    uniqueId: session.roomInfo.owner.uniqueId,
+                    avatarLarger: session.roomInfo.owner.avatarLarger,
+                    avatarMedium: session.roomInfo.owner.avatarMedium,
+                    avatarThumb: session.roomInfo.owner.avatarThumb
+                } : null
+            } : null
+        });
+        
+    } catch (error) {
+        console.error('Error in debug endpoint:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Debug endpoint for profile picture testing
+app.post('/api/debug/profile-test', async (req, res) => {
+    try {
+        const { username } = req.body;
+        
+        if (!username) {
+            return res.status(400).json({ error: 'Username is required' });
+        }
+        
+        console.log(`🔍 Testing profile sources for: ${username}`);
+        const results = {};
+        
+        // Test 1: Check active sessions
+        for (const [sessionId, session] of activeSessions) {
+            const chatEvents = session.events.filter(event => 
+                event.type === 'chat' && event.username === username
+            );
+            
+            if (chatEvents.length > 0) {
+                const latestEvent = chatEvents[chatEvents.length - 1];
+                results.activeSession = {
+                    found: true,
+                    sessionId,
+                    userProfile: latestEvent.userProfile,
+                    eventCount: chatEvents.length
+                };
+                break;
+            }
+        }
+        
+        // Test 2: Direct TikTok API
+        try {
+            const tempConnection = new TikTokLiveConnection(username);
+            const roomInfo = await tempConnection.getRoomInfo();
+            
+            results.directAPI = {
+                found: !!roomInfo?.owner,
+                owner: roomInfo?.owner ? {
+                    displayName: roomInfo.owner.displayName,
+                    uniqueId: roomInfo.owner.uniqueId,
+                    avatarLarger: roomInfo.owner.avatarLarger,
+                    avatarMedium: roomInfo.owner.avatarMedium,
+                    avatarThumb: roomInfo.owner.avatarThumb
+                } : null
+            };
+        } catch (error) {
+            results.directAPI = {
+                found: false,
+                error: error.message
+            };
+        }
+        
+        // Test 3: Database lookup
+        try {
+            const streamerData = await db.getStreamer(username);
+            results.database = {
+                found: !!streamerData,
+                data: streamerData
+            };
+        } catch (error) {
+            results.database = {
+                found: false,
+                error: error.message
+            };
+        }
+        
+        res.json({
+            success: true,
+            username,
+            results
+        });
+        
+    } catch (error) {
+        console.error('Error in profile test:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ===== GAMING SYSTEM API ENDPOINTS =====
+
+// Start Lucky Wheel Game
+app.post('/api/gaming/luckywheel/start', async (req, res) => {
+    try {
+        const { sessionId, duration = 10000 } = req.body;
+        
+        if (!sessionId) {
+            return res.status(400).json({ error: 'sessionId is required' });
+        }
+
+        if (!activeSessions.has(sessionId)) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
+
+        const gameData = gamingSystem.startLuckyWheel(sessionId, duration);
+        
+        const keyword = gameData.keyword || 'GAME';
+        res.json({
+            success: true,
+            game: gameData,
+            message: `Lucky Wheel started! Players can type "${keyword}" to enter for ${duration/1000} seconds.`
+        });
+        
+    } catch (error) {
+        console.error('Error starting Lucky Wheel:', error);
+        res.status(500).json({ error: 'Failed to start Lucky Wheel game' });
+    }
+});
+
+// Spin Lucky Wheel (get winner)
+app.post('/api/gaming/luckywheel/spin', async (req, res) => {
+    try {
+        const { sessionId } = req.body;
+        
+        if (!sessionId) {
+            return res.status(400).json({ error: 'sessionId is required' });
+        }
+
+        const result = await gamingSystem.endLuckyWheel(sessionId);
+        
+        if (!result) {
+            return res.status(404).json({ error: 'No active Lucky Wheel game found for this session' });
+        }
+
+        res.json({
+            success: true,
+            result,
+            winner: result.winner,
+            totalEntries: result.totalEntries
+        });
+        
+    } catch (error) {
+        console.error('Error spinning Lucky Wheel:', error);
+        res.status(500).json({ error: 'Failed to spin Lucky Wheel' });
+    }
+});
+
+// Start Poll Game
+app.post('/api/gaming/poll/start', async (req, res) => {
+    try {
+        const { sessionId, question, options, duration = 30000 } = req.body;
+        
+        if (!sessionId || !question || !options || !Array.isArray(options)) {
+            return res.status(400).json({ error: 'sessionId, question, and options array are required' });
+        }
+
+        if (!activeSessions.has(sessionId)) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
+
+        // Format options with proper structure
+        const formattedOptions = options.map((option, index) => ({
+            id: index + 1,
+            text: option.text || option,
+            keyword: option.keyword || option.text || option,
+            votes: []
+        }));
+
+        const gameData = gamingSystem.startPoll(sessionId, question, formattedOptions, duration);
+        
+        res.json({
+            success: true,
+            game: gameData,
+            message: `Poll started: "${question}" - ${duration/1000} seconds to vote!`
+        });
+        
+    } catch (error) {
+        console.error('Error starting Poll:', error);
+        res.status(500).json({ error: 'Failed to start Poll game' });
+    }
+});
+
+// End Poll and get results
+app.post('/api/gaming/poll/end', async (req, res) => {
+    try {
+        const { sessionId } = req.body;
+        
+        if (!sessionId) {
+            return res.status(400).json({ error: 'sessionId is required' });
+        }
+
+        const result = gamingSystem.endPoll(sessionId);
+        
+        if (!result) {
+            return res.status(404).json({ error: 'No active Poll game found for this session' });
+        }
+
+        res.json({
+            success: true,
+            result,
+            winner: result.winner,
+            totalVotes: result.totalVotes
+        });
+        
+    } catch (error) {
+        console.error('Error ending Poll:', error);
+        res.status(500).json({ error: 'Failed to end Poll' });
+    }
+});
+
+// Start Race Game
+app.post('/api/gaming/race/start', async (req, res) => {
+    try {
+        const { sessionId, duration = 20000 } = req.body;
+        
+        if (!sessionId) {
+            return res.status(400).json({ error: 'sessionId is required' });
+        }
+
+        if (!activeSessions.has(sessionId)) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
+
+        const gameData = gamingSystem.startRace(sessionId, duration);
+        
+        res.json({
+            success: true,
+            game: gameData,
+            message: `Race started! Comment to move your character for ${duration/1000} seconds!`
+        });
+        
+    } catch (error) {
+        console.error('Error starting Race:', error);
+        res.status(500).json({ error: 'Failed to start Race game' });
+    }
+});
+
+// End Race and get results
+app.post('/api/gaming/race/end', async (req, res) => {
+    try {
+        const { sessionId } = req.body;
+        
+        if (!sessionId) {
+            return res.status(400).json({ error: 'sessionId is required' });
+        }
+
+        const result = gamingSystem.endRace(sessionId);
+        
+        if (!result) {
+            return res.status(404).json({ error: 'No active Race game found for this session' });
+        }
+
+        res.json({
+            success: true,
+            result,
+            winner: result.winner,
+            totalParticipants: result.totalParticipants
+        });
+        
+    } catch (error) {
+        console.error('Error ending Race:', error);
+        res.status(500).json({ error: 'Failed to end Race' });
+    }
+});
+
+// Get game status for session
+app.get('/api/gaming/status/:sessionId', (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        const status = gamingSystem.getGameStatus(sessionId);
+        
+        res.json({
+            success: true,
+            status
+        });
+        
+    } catch (error) {
+        console.error('Error getting game status:', error);
+        res.status(500).json({ error: 'Failed to get game status' });
+    }
+});
+
+// Get all active games
+app.get('/api/gaming/active', (req, res) => {
+    try {
+        const activeGames = gamingSystem.getActiveGames();
+        
+        res.json({
+            success: true,
+            activeGames
+        });
+        
+    } catch (error) {
+        console.error('Error getting active games:', error);
+        res.status(500).json({ error: 'Failed to get active games' });
+    }
+});
+
+// Get game history
+app.get('/api/gaming/history', (req, res) => {
+    try {
+        const { sessionId, limit = 10 } = req.query;
+        
+        const history = gamingSystem.getGameHistory(sessionId, parseInt(limit));
+        
+        res.json({
+            success: true,
+            history
+        });
+        
+    } catch (error) {
+        console.error('Error getting game history:', error);
+        res.status(500).json({ error: 'Failed to get game history' });
+    }
+});
+
+// Get game history for specific session
+app.get('/api/gaming/history/:sessionId', (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        const { limit = 10 } = req.query;
+        
+        const history = gamingSystem.getGameHistory(sessionId, parseInt(limit));
+        
+        res.json({
+            success: true,
+            history
+        });
+        
+    } catch (error) {
+        console.error('Error getting game history:', error);
+        res.status(500).json({ error: 'Failed to get game history' });
+    }
+});
+
+// Stop any active game
+app.post('/api/gaming/stop', async (req, res) => {
+    try {
+        const { sessionId } = req.body;
+        
+        if (!sessionId) {
+            return res.status(400).json({ error: 'sessionId is required' });
+        }
+
+        const result = gamingSystem.stopGame(sessionId);
+        
+        if (!result) {
+            return res.status(404).json({ error: 'No active game found for this session' });
+        }
+
+        res.json({
+            success: true,
+            result,
+            message: 'Game stopped successfully'
+        });
+        
+    } catch (error) {
+        console.error('Error stopping game:', error);
+        res.status(500).json({ error: 'Failed to stop game' });
+    }
+});
+
+// ===== DJ GAME ENDPOINTS =====
+
+// Start DJ Game
+app.post('/api/gaming/djgame/start', async (req, res) => {
+    try {
+        const { sessionId } = req.body;
+        
+        if (!sessionId) {
+            return res.status(400).json({ error: 'sessionId is required' });
+        }
+
+        const result = gamingSystem.startDJGame(sessionId);
+        
+        if (!result) {
+            return res.status(404).json({ error: 'Failed to start DJ Game' });
+        }
+
+        res.json({
+            success: true,
+            result,
+            message: 'DJ Game started successfully'
+        });
+        
+    } catch (error) {
+        console.error('Error starting DJ Game:', error);
+        res.status(500).json({ error: 'Failed to start DJ Game' });
+    }
+});
+
+// Get DJ Game status
+app.get('/api/gaming/djgame/status/:sessionId', async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        
+        if (!sessionId) {
+            return res.status(400).json({ error: 'sessionId is required' });
+        }
+
+        const status = gamingSystem.getDJGameStatus(sessionId);
+        
+        if (!status) {
+            return res.json({
+                success: false,
+                message: 'No active DJ Game found'
+            });
+        }
+
+        res.json({
+            success: true,
+            status
+        });
+        
+    } catch (error) {
+        console.error('Error getting DJ Game status:', error);
+        res.status(500).json({ error: 'Failed to get DJ Game status' });
+    }
+});
+
+// End DJ Game
+app.post('/api/gaming/djgame/end', async (req, res) => {
+    try {
+        const { sessionId } = req.body;
+        
+        if (!sessionId) {
+            return res.status(400).json({ error: 'sessionId is required' });
+        }
+
+        const result = gamingSystem.endDJGame(sessionId);
+        
+        if (!result) {
+            return res.status(404).json({ error: 'No active DJ Game found' });
+        }
+
+        res.json({
+            success: true,
+            result,
+            message: 'DJ Game ended successfully'
+        });
+        
+    } catch (error) {
+        console.error('Error ending DJ Game:', error);
+        res.status(500).json({ error: 'Failed to end DJ Game' });
+    }
+});
+
+// Get DJ Game playlist
+app.get('/api/gaming/djgame/playlist/:sessionId', async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        
+        if (!sessionId) {
+            return res.status(400).json({ error: 'sessionId is required' });
+        }
+
+        const playlist = gamingSystem.getDJGamePlaylist(sessionId);
+        
+        res.json({
+            success: true,
+            playlist: playlist || []
+        });
+        
+    } catch (error) {
+        console.error('Error getting DJ Game playlist:', error);
+        res.status(500).json({ error: 'Failed to get DJ Game playlist' });
+    }
+});
+
+// ===== SPOTIFY AUTH ENDPOINTS =====
+
+// Initialize Spotify integration
+const SpotifyIntegration = require('./spotify-integration');
+const spotifyIntegration = new SpotifyIntegration();
+
+// Get Spotify auth URL
+app.get('/api/spotify/auth', async (req, res) => {
+    try {
+        const authUrl = await spotifyIntegration.getAuthUrl();
+        res.json({ url: authUrl });
+    } catch (error) {
+        console.error('Error getting Spotify auth URL:', error);
+        res.status(500).json({ error: 'Failed to generate auth URL' });
+    }
+});
+
+// Handle Spotify callback
+app.get('/callback', async (req, res) => {
+    const { code } = req.query;
+    
+    if (!code) {
+        return res.status(400).json({ error: 'Authorization code is required' });
+    }
+
+    try {
+        const result = await spotifyIntegration.handleCallback(code);
+        if (result.success) {
+            // Redirect to the DJ game interface with success message
+            res.redirect('/dj-game.html?auth=success');
+        } else {
+            res.redirect('/dj-game.html?auth=error');
+        }
+    } catch (error) {
+        console.error('Error handling Spotify callback:', error);
+        res.redirect('/dj-game.html?auth=error');
+    }
+});
+
 // ===== NGROK & EXTERNAL API ENDPOINTS =====
 
 // Health check endpoint
@@ -1028,7 +2101,13 @@ app.get('/api-docs', (req, res) => {
                 'POST /api/sessions': 'Create new session',
                 'GET /api/sessions/:id': 'Get session info',
                 'GET /api/sessions/:id/events': 'Get session events (SSE)',
+                'GET /api/sessions/:id/participants': 'Get session participants',
                 'DELETE /api/sessions/:id': 'End session'
+            },
+            users: {
+                'GET /api/users/:userId/profile': 'Get user profile by ID',
+                'GET /api/sessions/:sessionId/users/:userId/activity': 'Get user activity in session',
+                'POST /api/users/profiles/batch': 'Get multiple user profiles'
             },
             ngrok: {
                 'POST /api/ngrok/start': 'Start ngrok tunnel',
@@ -1106,16 +2185,86 @@ process.on('SIGTERM', async () => {
     process.exit(0);
 });
 
+// Game Settings Endpoints
+app.post('/api/game-settings', async (req, res) => {
+    try {
+        const { settings } = req.body;
+        
+        if (!settings) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Settings data is required' 
+            });
+        }
+
+        // Save settings to database
+        await db.saveGameSettings(settings);
+        
+        // Refresh gaming system settings
+        await gamingSystem.refreshSettings();
+        
+        console.log('🎮 Game settings saved successfully');
+        
+        res.json({ 
+            success: true, 
+            message: 'Game settings saved successfully' 
+        });
+    } catch (error) {
+        console.error('Error in game settings save:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Internal server error' 
+        });
+    }
+});
+
+app.get('/api/game-settings', async (req, res) => {
+    try {
+        const settings = await db.getGameSettings();
+        
+        res.json({ 
+            success: true, 
+            settings: settings 
+        });
+    } catch (error) {
+        console.error('Error in game settings load:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Internal server error' 
+        });
+    }
+});
+
+// Initialize gaming system cleanup interval
+setInterval(() => {
+    gamingSystem.cleanup();
+}, 60000); // Clean up every minute
+
 // Start server
 app.listen(PORT, () => {
     console.log(`🚀 TikTok Live Connector Backend Server is running!`);
     console.log(`📍 API Server: http://localhost:${PORT}`);
     console.log(`📊 Database: SQLite (tiktok_sessions.db)`);
+    console.log(`🎮 Gaming System: Active (Lucky Wheel, Polls, Races)`);
     console.log(`🔗 API Endpoints:`);
     console.log(`   POST /api/sessions - Create new session`);
     console.log(`   GET  /api/sessions - List all sessions`);
     console.log(`   GET  /api/sessions/:id - Get session info`);
     console.log(`   GET  /api/sessions/:id/events - Get session events`);
     console.log(`   DELETE /api/sessions/:id - End session`);
+    console.log(`🖼️ User Profile API:`);
+    console.log(`   GET  /api/users/:userId/profile - Get unified user profile picture`);
+    console.log(`   GET  /api/tiktok/profile/:username - Legacy TikTok profile endpoint`);
+    console.log(`🎯 Gaming Endpoints:`);
+    console.log(`   POST /api/gaming/luckywheel/start - Start Lucky Wheel`);
+    console.log(`   POST /api/gaming/luckywheel/spin - Spin Lucky Wheel`);
+    console.log(`   POST /api/gaming/poll/start - Start Poll Game`);
+    console.log(`   POST /api/gaming/race/start - Start Race Game`);
+    console.log(`   GET  /api/gaming/status/:sessionId - Get game status`);
+    console.log(`⚙️ Settings Endpoints:`);
+    console.log(`   POST /api/game-settings - Save game configuration`);
+    console.log(`   GET  /api/game-settings - Load game configuration`);
+    console.log(`🌐 Web Interface:`);
+    console.log(`   http://localhost:${PORT}/game-settings.html - Game Settings`);
     console.log(`🛑 Press Ctrl+C to stop the server`);
 });
