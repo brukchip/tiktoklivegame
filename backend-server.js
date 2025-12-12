@@ -28,8 +28,8 @@ app.use(express.static('public')); // We'll create this for frontend files
 
 // Health check
 app.get('/api/health', (req, res) => {
-    res.json({ 
-        status: 'healthy', 
+    res.json({
+        status: 'healthy',
         timestamp: new Date().toISOString(),
         activeSessions: activeSessions.size
     });
@@ -39,22 +39,37 @@ app.get('/api/health', (req, res) => {
 app.post('/api/sessions', async (req, res) => {
     try {
         const { username } = req.body;
-        
+
         if (!username) {
             return res.status(400).json({ error: 'Username is required' });
         }
 
         // Generate session ID
         const sessionId = uuidv4();
-        
+
         console.log(`🚀 Creating session ${sessionId} for @${username}`);
 
         // Create TikTok connection
-        const connection = new TikTokLiveConnection(username, {
+        const connectionOptions = {
             processInitialData: true,
             enableExtendedGiftInfo: true,
-            fetchRoomInfoOnConnect: true
-        });
+            fetchRoomInfoOnConnect: true,
+            requestOptions: {}
+        };
+
+        // Add Session ID if available (Bypasses some CAPTCHAs/Limits)
+        if (process.env.TIKTOK_SESSION_ID) {
+            connectionOptions.sessionId = process.env.TIKTOK_SESSION_ID;
+            console.log('🔐 Using configured Session ID');
+        }
+
+        // Add Proxy if available (Bypasses IP blocks)
+        if (process.env.PROXY_URL) {
+            connectionOptions.requestOptions.proxy = process.env.PROXY_URL;
+            console.log('🛡️ Using configured Proxy');
+        }
+
+        const connection = new TikTokLiveConnection(username, connectionOptions);
 
         // Check if user is live first (with fallback)
         let isLive = false;
@@ -114,7 +129,7 @@ app.post('/api/sessions', async (req, res) => {
         // Connect to TikTok Live
         try {
             const state = await connection.connect();
-            
+
             // Update session status
             sessionData.status = 'connected';
             sessionData.roomId = state.roomId;
@@ -152,13 +167,13 @@ app.post('/api/sessions', async (req, res) => {
             // Clean up on connection failure
             activeSessions.delete(sessionId);
             activeConnections.delete(sessionId);
-            
+
             console.error(`❌ Failed to connect session ${sessionId}:`, error.message);
-            
+
             // Provide helpful error messages based on error type
             let userFriendlyError = 'Failed to connect to live stream';
             let suggestion = 'Please try again in a few moments';
-            
+
             if (error.message.includes('not found') || error.message.includes('404')) {
                 userFriendlyError = `@${username} not found or not currently live`;
                 suggestion = 'Check the username spelling or wait for them to go live';
@@ -168,8 +183,14 @@ app.post('/api/sessions', async (req, res) => {
             } else if (error.message.includes('timeout')) {
                 userFriendlyError = 'Connection timeout';
                 suggestion = 'Check your internet connection and try again';
+            } else if (error.message.includes('captcha') || error.message.includes('blocked')) {
+                userFriendlyError = 'Connection blocked by TikTok (Captcha/IP)';
+                suggestion = 'Server IP is likely blocked. Try using a Proxy or Session ID.';
+            } else {
+                // Include the actual error message for generic failures
+                userFriendlyError = `Failed to connect: ${error.message}`;
             }
-            
+
             res.status(500).json({
                 error: userFriendlyError,
                 suggestion: suggestion,
@@ -179,7 +200,7 @@ app.post('/api/sessions', async (req, res) => {
 
     } catch (error) {
         console.error('Error creating session:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             error: 'Internal server error',
             details: error.message
         });
@@ -190,7 +211,7 @@ app.post('/api/sessions', async (req, res) => {
 app.get('/api/sessions/:sessionId', async (req, res) => {
     try {
         const { sessionId } = req.params;
-        
+
         // Check active session first
         const activeSession = activeSessions.get(sessionId);
         if (activeSession) {
@@ -222,20 +243,20 @@ app.get('/api/sessions/:sessionId/events', async (req, res) => {
     try {
         const { sessionId } = req.params;
         const { type, limit = 100 } = req.query;
-        
+
         // Check if session is active
         const activeSession = activeSessions.get(sessionId);
         if (activeSession) {
             let events = activeSession.events;
-            
+
             // Filter by type if specified
             if (type) {
                 events = events.filter(event => event.type === type);
             }
-            
+
             // Limit results
             events = events.slice(-parseInt(limit));
-            
+
             return res.json({
                 sessionId,
                 events: events.reverse(), // Most recent first
@@ -247,7 +268,7 @@ app.get('/api/sessions/:sessionId/events', async (req, res) => {
         // Get from database for ended sessions
         const events = await db.getSessionEvents(sessionId, type, parseInt(limit));
         const sessionStats = await db.getSessionStats(sessionId);
-        
+
         res.json({
             sessionId,
             events,
@@ -264,15 +285,15 @@ app.get('/api/sessions/:sessionId/events', async (req, res) => {
 app.delete('/api/sessions/:sessionId', async (req, res) => {
     try {
         const { sessionId } = req.params;
-        
+
         const session = activeSessions.get(sessionId);
         const connection = activeConnections.get(sessionId);
-        
+
         if (connection) {
             connection.disconnect();
             activeConnections.delete(sessionId);
         }
-        
+
         if (session) {
             session.status = 'ended';
             session.endTime = new Date();
@@ -281,19 +302,19 @@ app.delete('/api/sessions/:sessionId', async (req, res) => {
 
         // Update database
         await db.endSession(sessionId);
-        
+
         console.log(`🔚 Session ${sessionId} ended`);
-        
-        res.json({ 
+
+        res.json({
             success: true,
             message: 'Session ended successfully',
             sessionId
         });
     } catch (error) {
         console.error('Error ending session:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Internal server error' 
+        res.status(500).json({
+            success: false,
+            error: 'Internal server error'
         });
     }
 });
@@ -302,15 +323,15 @@ app.delete('/api/sessions/:sessionId', async (req, res) => {
 app.get('/api/sessions', async (req, res) => {
     try {
         const { limit = 50 } = req.query;
-        
+
         const dbSessions = await db.getAllSessions(parseInt(limit));
-        
+
         // Add active session info
         const sessions = dbSessions.map(session => ({
             ...session,
             isActive: activeSessions.has(session.id)
         }));
-        
+
         res.json({
             sessions,
             totalActive: activeSessions.size
@@ -324,7 +345,7 @@ app.get('/api/sessions', async (req, res) => {
 // WebSocket-like endpoint for real-time events (SSE)
 app.get('/api/sessions/:sessionId/stream', (req, res) => {
     const { sessionId } = req.params;
-    
+
     // Set up Server-Sent Events
     res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -341,8 +362,8 @@ app.get('/api/sessions/:sessionId/stream', (req, res) => {
     }
 
     // Send initial session info
-    res.write(`data: ${JSON.stringify({ 
-        type: 'session_info', 
+    res.write(`data: ${JSON.stringify({
+        type: 'session_info',
         session: {
             id: sessionId,
             username: session.username,
@@ -363,8 +384,8 @@ app.get('/api/sessions/:sessionId/stream', (req, res) => {
         // Send recent events
         const recentEvents = currentSession.events.slice(-5);
         if (recentEvents.length > 0) {
-            res.write(`data: ${JSON.stringify({ 
-                type: 'events', 
+            res.write(`data: ${JSON.stringify({
+                type: 'events',
                 events: recentEvents,
                 stats: currentSession.stats
             })}\n\n`);
@@ -416,7 +437,7 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             username: data.user.uniqueId,
             message: data.comment,
             timestamp: new Date().toISOString(),
-            
+
             // Enhanced user profile data with corrected profile picture extraction
             userProfile: {
                 nickname: data.user.nickname,
@@ -438,14 +459,14 @@ function setupEventHandlers(connection, sessionId, sessionData) {
                 })),
                 border: data.user.border?.image?.url_list?.[0]
             },
-            
+
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
         sessionData.stats.messages++;
-        
+
         await db.addEvent(sessionId, 'chat', event);
         await db.updateSessionCounters(sessionId, 'chat');
 
@@ -459,7 +480,7 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             const activeGame = gamingSystem.getActiveGame(sessionId);
             const keyword = activeGame && activeGame.type === 'luckywheel' ? activeGame.keyword : 'GAME';
             console.log(`🎰 Gaming: ${username} entered Lucky Wheel with message: "${message}" (keyword: ${keyword})`);
-            
+
             // Enhanced debugging for profile pictures
             if (event.userProfile) {
                 console.log(`🖼️ Profile data for ${username}:`);
@@ -491,7 +512,7 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             repeatCount: data.repeatCount,
             repeatEnd: data.repeatEnd,
             timestamp: new Date().toISOString(),
-            
+
             // Enhanced user profile data
             userProfile: {
                 nickname: data.user.nickname,
@@ -502,14 +523,14 @@ function setupEventHandlers(connection, sessionId, sessionData) {
                 payLevel: data.user.payGrade?.level,
                 fanTicketCount: data.user.fanTicketCount
             },
-            
+
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
         sessionData.stats.gifts++;
-        
+
         await db.addEvent(sessionId, 'gift', event);
         await db.updateSessionCounters(sessionId, 'gift');
     });
@@ -523,11 +544,11 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             timestamp: new Date().toISOString(),
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
         sessionData.stats.members++;
-        
+
         await db.addEvent(sessionId, 'member', event);
         await db.updateSessionCounters(sessionId, 'member');
     });
@@ -540,7 +561,7 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             likeCount: data.likeCount,
             totalLikeCount: data.totalLikeCount,
             timestamp: new Date().toISOString(),
-            
+
             // Enhanced user profile data
             userProfile: {
                 nickname: data.user.nickname,
@@ -549,14 +570,14 @@ function setupEventHandlers(connection, sessionId, sessionData) {
                 followerCount: data.user.followInfo?.followerCount,
                 payGrade: data.user.payGrade?.name
             },
-            
+
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
         sessionData.stats.likes++;
-        
+
         await db.addEvent(sessionId, 'like', event);
         await db.updateSessionCounters(sessionId, 'like');
     });
@@ -569,7 +590,7 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             username: data.user.uniqueId,
             action: 'followed',
             timestamp: new Date().toISOString(),
-            
+
             // Enhanced user profile data
             userProfile: {
                 nickname: data.user.nickname,
@@ -578,14 +599,14 @@ function setupEventHandlers(connection, sessionId, sessionData) {
                 followerCount: data.user.followInfo?.followerCount,
                 payGrade: data.user.payGrade?.name
             },
-            
+
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
         sessionData.stats.social++;
-        
+
         await db.addEvent(sessionId, 'social', event);
         await db.updateSessionCounters(sessionId, 'social');
     });
@@ -600,11 +621,11 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             timestamp: new Date().toISOString(),
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
         sessionData.stats.social++;
-        
+
         await db.addEvent(sessionId, 'social', event);
         await db.updateSessionCounters(sessionId, 'social');
     });
@@ -619,11 +640,11 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             timestamp: new Date().toISOString(),
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
         sessionData.stats.social++;
-        
+
         await db.addEvent(sessionId, 'social', event);
         await db.updateSessionCounters(sessionId, 'social');
     });
@@ -639,11 +660,11 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             timestamp: new Date().toISOString(),
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
         sessionData.stats.emotes++;
-        
+
         await db.addEvent(sessionId, 'emote', event);
         await db.updateSessionCounters(sessionId, 'emote');
     });
@@ -657,11 +678,11 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             timestamp: new Date().toISOString(),
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
         sessionData.stats.envelopes++;
-        
+
         await db.addEvent(sessionId, 'envelope', event);
         await db.updateSessionCounters(sessionId, 'envelope');
     });
@@ -675,10 +696,10 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             timestamp: new Date().toISOString(),
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
-        
+
         await db.addEvent(sessionId, 'question', event);
         await db.updateSessionCounters(sessionId, 'question');
     });
@@ -695,10 +716,10 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             timestamp: new Date().toISOString(),
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
-        
+
         await db.addEvent(sessionId, 'battle', event);
         await db.updateSessionCounters(sessionId, 'battle');
     });
@@ -711,10 +732,10 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             timestamp: new Date().toISOString(),
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
-        
+
         await db.addEvent(sessionId, 'battle', event);
         await db.updateSessionCounters(sessionId, 'battle');
     });
@@ -726,10 +747,10 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             timestamp: new Date().toISOString(),
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
-        
+
         await db.addEvent(sessionId, 'intro', event);
         await db.updateSessionCounters(sessionId, 'intro');
     });
@@ -747,10 +768,10 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             timestamp: new Date().toISOString(),
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
-        
+
         await db.addEvent(sessionId, 'room_update', event);
         await db.updateSessionCounters(sessionId, 'room_update');
     });
@@ -763,10 +784,10 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             timestamp: new Date().toISOString(),
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
-        
+
         await db.addEvent(sessionId, 'goal', event);
         await db.updateSessionCounters(sessionId, 'goal');
     });
@@ -779,10 +800,10 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             timestamp: new Date().toISOString(),
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
-        
+
         await db.addEvent(sessionId, 'ranking', event);
         await db.updateSessionCounters(sessionId, 'ranking');
     });
@@ -795,10 +816,10 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             timestamp: new Date().toISOString(),
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
-        
+
         await db.addEvent(sessionId, 'ranking', event);
         await db.updateSessionCounters(sessionId, 'ranking');
     });
@@ -810,10 +831,10 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             timestamp: new Date().toISOString(),
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
-        
+
         await db.addEvent(sessionId, 'poll', event);
         await db.updateSessionCounters(sessionId, 'poll');
     });
@@ -825,10 +846,10 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             timestamp: new Date().toISOString(),
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
-        
+
         await db.addEvent(sessionId, 'shopping', event);
         await db.updateSessionCounters(sessionId, 'shopping');
     });
@@ -840,10 +861,10 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             timestamp: new Date().toISOString(),
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
-        
+
         await db.addEvent(sessionId, 'banner', event);
         await db.updateSessionCounters(sessionId, 'banner');
     });
@@ -856,10 +877,10 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             timestamp: new Date().toISOString(),
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
-        
+
         await db.addEvent(sessionId, 'moderation', event);
         await db.updateSessionCounters(sessionId, 'moderation');
     });
@@ -872,10 +893,10 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             timestamp: new Date().toISOString(),
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
-        
+
         await db.addEvent(sessionId, 'moderation', event);
         await db.updateSessionCounters(sessionId, 'moderation');
     });
@@ -887,10 +908,10 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             timestamp: new Date().toISOString(),
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
-        
+
         await db.addEvent(sessionId, 'caption', event);
         await db.updateSessionCounters(sessionId, 'caption');
     });
@@ -902,10 +923,10 @@ function setupEventHandlers(connection, sessionId, sessionData) {
             timestamp: new Date().toISOString(),
             raw: data
         };
-        
+
         sessionData.events.push(event);
         sessionData.stats.totalEvents++;
-        
+
         await db.addEvent(sessionId, 'link', event);
         await db.updateSessionCounters(sessionId, 'link');
     });
@@ -920,13 +941,13 @@ function setupEventHandlers(connection, sessionId, sessionData) {
                 timestamp: new Date().toISOString(),
                 raw: data
             };
-            
+
             sessionData.events.push(event);
             sessionData.stats.totalEvents++;
-            
+
             await db.addEvent(sessionId, 'other', event);
             await db.updateSessionCounters(sessionId, 'other');
-            
+
             console.log(`🔔 Captured unknown event: ${eventName}`);
         }
     });
@@ -939,9 +960,9 @@ app.get('/api/sessions/:sessionId/participants', async (req, res) => {
     try {
         const { sessionId } = req.params;
         const { limit = 50 } = req.query;
-        
+
         console.log('👥 Fetching participants for session:', sessionId);
-        
+
         const session = activeSessions.get(sessionId);
         if (!session) {
             return res.status(404).json({
@@ -949,24 +970,24 @@ app.get('/api/sessions/:sessionId/participants', async (req, res) => {
                 error: 'Session not found'
             });
         }
-        
+
         // Collect unique participants from events
         const participantsMap = new Map();
-        
+
         session.events.forEach(event => {
             if (event.userId && event.username) {
                 const participant = {
                     userId: event.userId,
                     username: event.username,
-                    firstSeen: participantsMap.has(event.userId) ? 
+                    firstSeen: participantsMap.has(event.userId) ?
                         participantsMap.get(event.userId).firstSeen : event.timestamp,
                     lastSeen: event.timestamp,
                     eventCount: (participantsMap.get(event.userId)?.eventCount || 0) + 1,
                     eventTypes: new Set(participantsMap.get(event.userId)?.eventTypes || [])
                 };
-                
+
                 participant.eventTypes.add(event.type);
-                
+
                 // Add profile data if available in raw event
                 if (event.raw?.user) {
                     const user = event.raw.user;
@@ -978,19 +999,19 @@ app.get('/api/sessions/:sessionId/participants', async (req, res) => {
                         payGrade: user.payGrade?.name
                     };
                 }
-                
+
                 participantsMap.set(event.userId, {
                     ...participant,
                     eventTypes: Array.from(participant.eventTypes)
                 });
             }
         });
-        
+
         // Convert to array and sort by event count
         const participants = Array.from(participantsMap.values())
             .sort((a, b) => b.eventCount - a.eventCount)
             .slice(0, parseInt(limit));
-        
+
         res.json({
             success: true,
             sessionId,
@@ -998,7 +1019,7 @@ app.get('/api/sessions/:sessionId/participants', async (req, res) => {
             totalUniqueParticipants: participantsMap.size,
             isActive: session.status === 'connected'
         });
-        
+
     } catch (error) {
         console.error('Error fetching session participants:', error);
         res.status(500).json({
@@ -1013,9 +1034,9 @@ app.get('/api/sessions/:sessionId/users/:userId/activity', async (req, res) => {
     try {
         const { sessionId, userId } = req.params;
         const { limit = 100 } = req.query;
-        
+
         console.log('📊 Fetching user activity for:', userId, 'in session:', sessionId);
-        
+
         const session = activeSessions.get(sessionId);
         if (!session) {
             return res.status(404).json({
@@ -1023,20 +1044,20 @@ app.get('/api/sessions/:sessionId/users/:userId/activity', async (req, res) => {
                 error: 'Session not found'
             });
         }
-        
+
         // Filter events for this specific user
         const userEvents = session.events
             .filter(event => event.userId === userId)
             .slice(-parseInt(limit))
             .reverse(); // Most recent first
-        
+
         if (userEvents.length === 0) {
             return res.status(404).json({
                 success: false,
                 error: 'No activity found for this user in this session'
             });
         }
-        
+
         // Generate activity statistics
         const activityStats = {
             totalEvents: userEvents.length,
@@ -1044,12 +1065,12 @@ app.get('/api/sessions/:sessionId/users/:userId/activity', async (req, res) => {
             firstActivity: userEvents[userEvents.length - 1].timestamp,
             lastActivity: userEvents[0].timestamp
         };
-        
+
         userEvents.forEach(event => {
-            activityStats.eventTypes[event.type] = 
+            activityStats.eventTypes[event.type] =
                 (activityStats.eventTypes[event.type] || 0) + 1;
         });
-        
+
         // Get user profile from most recent event
         let userProfile = null;
         const latestEventWithProfile = userEvents.find(event => event.raw?.user);
@@ -1063,7 +1084,7 @@ app.get('/api/sessions/:sessionId/users/:userId/activity', async (req, res) => {
                 payGrade: user.payGrade?.name
             };
         }
-        
+
         res.json({
             success: true,
             sessionId,
@@ -1073,7 +1094,7 @@ app.get('/api/sessions/:sessionId/users/:userId/activity', async (req, res) => {
             activity: userEvents,
             stats: activityStats
         });
-        
+
     } catch (error) {
         console.error('Error fetching user activity:', error);
         res.status(500).json({
@@ -1087,29 +1108,29 @@ app.get('/api/sessions/:sessionId/users/:userId/activity', async (req, res) => {
 app.post('/api/users/profiles/batch', async (req, res) => {
     try {
         const { userIds } = req.body;
-        
+
         if (!userIds || !Array.isArray(userIds)) {
             return res.status(400).json({
                 success: false,
                 error: 'userIds array is required'
             });
         }
-        
+
         console.log('👥 Fetching batch profiles for:', userIds.length, 'users');
-        
+
         const profiles = {};
         const notFound = [];
-        
+
         // Search through all active sessions for user data
         for (const userId of userIds) {
             let found = false;
-            
+
             for (const [sessionId, session] of activeSessions) {
                 const userEvents = session.events.filter(event => event.userId === userId);
-                
+
                 if (userEvents.length > 0) {
                     const latestEvent = userEvents[userEvents.length - 1];
-                    
+
                     if (latestEvent.raw?.user) {
                         const user = latestEvent.raw.user;
                         profiles[userId] = {
@@ -1128,12 +1149,12 @@ app.post('/api/users/profiles/batch', async (req, res) => {
                     }
                 }
             }
-            
+
             if (!found) {
                 notFound.push(userId);
             }
         }
-        
+
         res.json({
             success: true,
             profiles,
@@ -1141,7 +1162,7 @@ app.post('/api/users/profiles/batch', async (req, res) => {
             found: Object.keys(profiles).length,
             requested: userIds.length
         });
-        
+
     } catch (error) {
         console.error('Error fetching batch profiles:', error);
         res.status(500).json({
@@ -1158,14 +1179,14 @@ app.get('/api/users/:userId/profile', async (req, res) => {
     try {
         const { userId } = req.params;
         console.log('🖼️ Fetching profile for user:', userId);
-        
+
         // Method 1: Check active TikTok sessions for this user
         for (const [sessionId, session] of activeSessions) {
             if (session.streamerUsername === userId || session.streamerUsername === `@${userId}`) {
                 if (session.roomInfo?.owner) {
                     const owner = session.roomInfo.owner;
                     const profilePic = owner.avatarLarger || owner.avatarMedium || owner.avatarThumb;
-                    
+
                     if (profilePic) {
                         console.log('✅ Found profile in active session:', profilePic);
                         return res.json({
@@ -1178,7 +1199,7 @@ app.get('/api/users/:userId/profile', async (req, res) => {
                 }
             }
         }
-        
+
         // Method 1.5: Check database for any session with this streamer
         try {
             const sessions = await db.getAllSessions();
@@ -1200,7 +1221,7 @@ app.get('/api/users/:userId/profile', async (req, res) => {
         } catch (error) {
             console.log('⚠️ Database session lookup failed:', error.message);
         }
-        
+
         // Method 2: Check database for stored profile
         try {
             const streamerData = await db.getStreamer(userId);
@@ -1216,17 +1237,17 @@ app.get('/api/users/:userId/profile', async (req, res) => {
         } catch (error) {
             console.log('⚠️ Database lookup failed:', error.message);
         }
-        
+
         // Method 3: Try direct TikTok API
         try {
             const tempConnection = new TikTokLiveConnection(userId);
             const roomInfo = await tempConnection.getRoomInfo();
-            
+
             if (roomInfo?.owner) {
-                const profilePic = roomInfo.owner.avatarLarger || 
-                                 roomInfo.owner.avatarMedium ||
-                                 roomInfo.owner.avatarThumb;
-                
+                const profilePic = roomInfo.owner.avatarLarger ||
+                    roomInfo.owner.avatarMedium ||
+                    roomInfo.owner.avatarThumb;
+
                 if (profilePic) {
                     console.log('✅ Found profile via TikTok API:', profilePic);
                     return res.json({
@@ -1240,14 +1261,14 @@ app.get('/api/users/:userId/profile', async (req, res) => {
         } catch (error) {
             console.log('❌ TikTok API failed:', error.message);
         }
-        
+
         // No profile found
         console.log('⚠️ No profile picture found for:', userId);
         res.json({
             success: false,
             error: 'Profile picture not found'
         });
-        
+
     } catch (error) {
         console.error('Error fetching user profile:', error);
         res.status(500).json({
@@ -1264,20 +1285,20 @@ app.get('/api/tiktok/profile/:username', async (req, res) => {
     try {
         const { username } = req.params;
         console.log('🖼️ Fetching TikTok profile picture for:', username);
-        
+
         // Try to get profile picture from active sessions first
         for (const [sessionId, session] of activeSessions) {
             const sessionUsername = session.streamerUsername?.replace('@', '');
             const requestUsername = username.replace('@', '');
-            
+
             if (sessionUsername === requestUsername) {
                 console.log('📡 Found matching session for username:', username);
-                
+
                 // Check if we have room info with profile data
                 if (session.roomInfo?.owner) {
                     const owner = session.roomInfo.owner;
                     const profilePic = owner.avatarLarger || owner.avatarMedium || owner.avatarThumb;
-                    
+
                     if (profilePic) {
                         console.log('✅ Found profile picture in session data:', profilePic);
                         return res.json({
@@ -1288,7 +1309,7 @@ app.get('/api/tiktok/profile/:username', async (req, res) => {
                         });
                     }
                 }
-                
+
                 // Also check if we stored profile info in session
                 if (session.profilePicture) {
                     console.log('✅ Found cached profile picture');
@@ -1300,18 +1321,18 @@ app.get('/api/tiktok/profile/:username', async (req, res) => {
                 }
             }
         }
-        
+
         // If not found in active sessions, try to make a direct TikTok request
         try {
             const tempConnection = new TikTokLiveConnection(username);
-            
+
             // Get room info without connecting
             const roomInfo = await tempConnection.getRoomInfo();
             if (roomInfo?.owner) {
-                const profilePic = roomInfo.owner.avatarLarger || 
-                                 roomInfo.owner.avatarMedium ||
-                                 roomInfo.owner.avatarThumb;
-                
+                const profilePic = roomInfo.owner.avatarLarger ||
+                    roomInfo.owner.avatarMedium ||
+                    roomInfo.owner.avatarThumb;
+
                 if (profilePic) {
                     console.log('✅ Found profile picture via direct TikTok API');
                     return res.json({
@@ -1324,14 +1345,14 @@ app.get('/api/tiktok/profile/:username', async (req, res) => {
         } catch (error) {
             console.log('❌ Direct TikTok API failed:', error.message);
         }
-        
+
         // No profile picture found
         console.log('⚠️ No profile picture found for:', username);
         res.json({
             success: false,
             error: 'Profile picture not found'
         });
-        
+
     } catch (error) {
         console.error('Error fetching TikTok profile:', error);
         res.status(500).json({
@@ -1348,12 +1369,12 @@ app.get('/api/debug/session/:sessionId/events/raw', async (req, res) => {
     try {
         const { sessionId } = req.params;
         const { limit = 10 } = req.query;
-        
+
         const session = activeSessions.get(sessionId);
         if (!session) {
             return res.status(404).json({ error: 'Session not found' });
         }
-        
+
         // Get recent chat events with full raw data
         const chatEvents = session.events
             .filter(event => event.type === 'chat')
@@ -1375,7 +1396,7 @@ app.get('/api/debug/session/:sessionId/events/raw', async (req, res) => {
                     verified: event.raw.user.verified
                 } : null
             }));
-        
+
         res.json({
             success: true,
             sessionId,
@@ -1391,7 +1412,7 @@ app.get('/api/debug/session/:sessionId/events/raw', async (req, res) => {
                 } : null
             } : null
         });
-        
+
     } catch (error) {
         console.error('Error in debug endpoint:', error);
         res.status(500).json({ error: 'Internal server error' });
@@ -1402,20 +1423,20 @@ app.get('/api/debug/session/:sessionId/events/raw', async (req, res) => {
 app.post('/api/debug/profile-test', async (req, res) => {
     try {
         const { username } = req.body;
-        
+
         if (!username) {
             return res.status(400).json({ error: 'Username is required' });
         }
-        
+
         console.log(`🔍 Testing profile sources for: ${username}`);
         const results = {};
-        
+
         // Test 1: Check active sessions
         for (const [sessionId, session] of activeSessions) {
-            const chatEvents = session.events.filter(event => 
+            const chatEvents = session.events.filter(event =>
                 event.type === 'chat' && event.username === username
             );
-            
+
             if (chatEvents.length > 0) {
                 const latestEvent = chatEvents[chatEvents.length - 1];
                 results.activeSession = {
@@ -1427,12 +1448,12 @@ app.post('/api/debug/profile-test', async (req, res) => {
                 break;
             }
         }
-        
+
         // Test 2: Direct TikTok API
         try {
             const tempConnection = new TikTokLiveConnection(username);
             const roomInfo = await tempConnection.getRoomInfo();
-            
+
             results.directAPI = {
                 found: !!roomInfo?.owner,
                 owner: roomInfo?.owner ? {
@@ -1449,7 +1470,7 @@ app.post('/api/debug/profile-test', async (req, res) => {
                 error: error.message
             };
         }
-        
+
         // Test 3: Database lookup
         try {
             const streamerData = await db.getStreamer(username);
@@ -1463,13 +1484,13 @@ app.post('/api/debug/profile-test', async (req, res) => {
                 error: error.message
             };
         }
-        
+
         res.json({
             success: true,
             username,
             results
         });
-        
+
     } catch (error) {
         console.error('Error in profile test:', error);
         res.status(500).json({ error: 'Internal server error' });
@@ -1482,7 +1503,7 @@ app.post('/api/debug/profile-test', async (req, res) => {
 app.post('/api/gaming/luckywheel/start', async (req, res) => {
     try {
         const { sessionId, duration = 10000 } = req.body;
-        
+
         if (!sessionId) {
             return res.status(400).json({ error: 'sessionId is required' });
         }
@@ -1492,14 +1513,14 @@ app.post('/api/gaming/luckywheel/start', async (req, res) => {
         }
 
         const gameData = gamingSystem.startLuckyWheel(sessionId, duration);
-        
+
         const keyword = gameData.keyword || 'GAME';
         res.json({
             success: true,
             game: gameData,
-            message: `Lucky Wheel started! Players can type "${keyword}" to enter for ${duration/1000} seconds.`
+            message: `Lucky Wheel started! Players can type "${keyword}" to enter for ${duration / 1000} seconds.`
         });
-        
+
     } catch (error) {
         console.error('Error starting Lucky Wheel:', error);
         res.status(500).json({ error: 'Failed to start Lucky Wheel game' });
@@ -1510,13 +1531,13 @@ app.post('/api/gaming/luckywheel/start', async (req, res) => {
 app.post('/api/gaming/luckywheel/spin', async (req, res) => {
     try {
         const { sessionId } = req.body;
-        
+
         if (!sessionId) {
             return res.status(400).json({ error: 'sessionId is required' });
         }
 
         const result = await gamingSystem.endLuckyWheel(sessionId);
-        
+
         if (!result) {
             return res.status(404).json({ error: 'No active Lucky Wheel game found for this session' });
         }
@@ -1527,7 +1548,7 @@ app.post('/api/gaming/luckywheel/spin', async (req, res) => {
             winner: result.winner,
             totalEntries: result.totalEntries
         });
-        
+
     } catch (error) {
         console.error('Error spinning Lucky Wheel:', error);
         res.status(500).json({ error: 'Failed to spin Lucky Wheel' });
@@ -1538,7 +1559,7 @@ app.post('/api/gaming/luckywheel/spin', async (req, res) => {
 app.post('/api/gaming/poll/start', async (req, res) => {
     try {
         const { sessionId, question, options, duration = 30000 } = req.body;
-        
+
         if (!sessionId || !question || !options || !Array.isArray(options)) {
             return res.status(400).json({ error: 'sessionId, question, and options array are required' });
         }
@@ -1556,13 +1577,13 @@ app.post('/api/gaming/poll/start', async (req, res) => {
         }));
 
         const gameData = gamingSystem.startPoll(sessionId, question, formattedOptions, duration);
-        
+
         res.json({
             success: true,
             game: gameData,
-            message: `Poll started: "${question}" - ${duration/1000} seconds to vote!`
+            message: `Poll started: "${question}" - ${duration / 1000} seconds to vote!`
         });
-        
+
     } catch (error) {
         console.error('Error starting Poll:', error);
         res.status(500).json({ error: 'Failed to start Poll game' });
@@ -1573,13 +1594,13 @@ app.post('/api/gaming/poll/start', async (req, res) => {
 app.post('/api/gaming/poll/end', async (req, res) => {
     try {
         const { sessionId } = req.body;
-        
+
         if (!sessionId) {
             return res.status(400).json({ error: 'sessionId is required' });
         }
 
         const result = gamingSystem.endPoll(sessionId);
-        
+
         if (!result) {
             return res.status(404).json({ error: 'No active Poll game found for this session' });
         }
@@ -1590,7 +1611,7 @@ app.post('/api/gaming/poll/end', async (req, res) => {
             winner: result.winner,
             totalVotes: result.totalVotes
         });
-        
+
     } catch (error) {
         console.error('Error ending Poll:', error);
         res.status(500).json({ error: 'Failed to end Poll' });
@@ -1601,7 +1622,7 @@ app.post('/api/gaming/poll/end', async (req, res) => {
 app.post('/api/gaming/race/start', async (req, res) => {
     try {
         const { sessionId, duration = 20000 } = req.body;
-        
+
         if (!sessionId) {
             return res.status(400).json({ error: 'sessionId is required' });
         }
@@ -1611,13 +1632,13 @@ app.post('/api/gaming/race/start', async (req, res) => {
         }
 
         const gameData = gamingSystem.startRace(sessionId, duration);
-        
+
         res.json({
             success: true,
             game: gameData,
-            message: `Race started! Comment to move your character for ${duration/1000} seconds!`
+            message: `Race started! Comment to move your character for ${duration / 1000} seconds!`
         });
-        
+
     } catch (error) {
         console.error('Error starting Race:', error);
         res.status(500).json({ error: 'Failed to start Race game' });
@@ -1628,13 +1649,13 @@ app.post('/api/gaming/race/start', async (req, res) => {
 app.post('/api/gaming/race/end', async (req, res) => {
     try {
         const { sessionId } = req.body;
-        
+
         if (!sessionId) {
             return res.status(400).json({ error: 'sessionId is required' });
         }
 
         const result = gamingSystem.endRace(sessionId);
-        
+
         if (!result) {
             return res.status(404).json({ error: 'No active Race game found for this session' });
         }
@@ -1645,7 +1666,7 @@ app.post('/api/gaming/race/end', async (req, res) => {
             winner: result.winner,
             totalParticipants: result.totalParticipants
         });
-        
+
     } catch (error) {
         console.error('Error ending Race:', error);
         res.status(500).json({ error: 'Failed to end Race' });
@@ -1657,12 +1678,12 @@ app.get('/api/gaming/status/:sessionId', (req, res) => {
     try {
         const { sessionId } = req.params;
         const status = gamingSystem.getGameStatus(sessionId);
-        
+
         res.json({
             success: true,
             status
         });
-        
+
     } catch (error) {
         console.error('Error getting game status:', error);
         res.status(500).json({ error: 'Failed to get game status' });
@@ -1673,12 +1694,12 @@ app.get('/api/gaming/status/:sessionId', (req, res) => {
 app.get('/api/gaming/active', (req, res) => {
     try {
         const activeGames = gamingSystem.getActiveGames();
-        
+
         res.json({
             success: true,
             activeGames
         });
-        
+
     } catch (error) {
         console.error('Error getting active games:', error);
         res.status(500).json({ error: 'Failed to get active games' });
@@ -1689,14 +1710,14 @@ app.get('/api/gaming/active', (req, res) => {
 app.get('/api/gaming/history', (req, res) => {
     try {
         const { sessionId, limit = 10 } = req.query;
-        
+
         const history = gamingSystem.getGameHistory(sessionId, parseInt(limit));
-        
+
         res.json({
             success: true,
             history
         });
-        
+
     } catch (error) {
         console.error('Error getting game history:', error);
         res.status(500).json({ error: 'Failed to get game history' });
@@ -1708,14 +1729,14 @@ app.get('/api/gaming/history/:sessionId', (req, res) => {
     try {
         const { sessionId } = req.params;
         const { limit = 10 } = req.query;
-        
+
         const history = gamingSystem.getGameHistory(sessionId, parseInt(limit));
-        
+
         res.json({
             success: true,
             history
         });
-        
+
     } catch (error) {
         console.error('Error getting game history:', error);
         res.status(500).json({ error: 'Failed to get game history' });
@@ -1726,13 +1747,13 @@ app.get('/api/gaming/history/:sessionId', (req, res) => {
 app.post('/api/gaming/stop', async (req, res) => {
     try {
         const { sessionId } = req.body;
-        
+
         if (!sessionId) {
             return res.status(400).json({ error: 'sessionId is required' });
         }
 
         const result = gamingSystem.stopGame(sessionId);
-        
+
         if (!result) {
             return res.status(404).json({ error: 'No active game found for this session' });
         }
@@ -1742,7 +1763,7 @@ app.post('/api/gaming/stop', async (req, res) => {
             result,
             message: 'Game stopped successfully'
         });
-        
+
     } catch (error) {
         console.error('Error stopping game:', error);
         res.status(500).json({ error: 'Failed to stop game' });
@@ -1755,13 +1776,13 @@ app.post('/api/gaming/stop', async (req, res) => {
 app.post('/api/gaming/djgame/start', async (req, res) => {
     try {
         const { sessionId } = req.body;
-        
+
         if (!sessionId) {
             return res.status(400).json({ error: 'sessionId is required' });
         }
 
         const result = gamingSystem.startDJGame(sessionId);
-        
+
         if (!result) {
             return res.status(404).json({ error: 'Failed to start DJ Game' });
         }
@@ -1771,7 +1792,7 @@ app.post('/api/gaming/djgame/start', async (req, res) => {
             result,
             message: 'DJ Game started successfully'
         });
-        
+
     } catch (error) {
         console.error('Error starting DJ Game:', error);
         res.status(500).json({ error: 'Failed to start DJ Game' });
@@ -1782,13 +1803,13 @@ app.post('/api/gaming/djgame/start', async (req, res) => {
 app.get('/api/gaming/djgame/status/:sessionId', async (req, res) => {
     try {
         const { sessionId } = req.params;
-        
+
         if (!sessionId) {
             return res.status(400).json({ error: 'sessionId is required' });
         }
 
         const status = gamingSystem.getDJGameStatus(sessionId);
-        
+
         if (!status) {
             return res.json({
                 success: false,
@@ -1800,7 +1821,7 @@ app.get('/api/gaming/djgame/status/:sessionId', async (req, res) => {
             success: true,
             status
         });
-        
+
     } catch (error) {
         console.error('Error getting DJ Game status:', error);
         res.status(500).json({ error: 'Failed to get DJ Game status' });
@@ -1811,13 +1832,13 @@ app.get('/api/gaming/djgame/status/:sessionId', async (req, res) => {
 app.post('/api/gaming/djgame/end', async (req, res) => {
     try {
         const { sessionId } = req.body;
-        
+
         if (!sessionId) {
             return res.status(400).json({ error: 'sessionId is required' });
         }
 
         const result = gamingSystem.endDJGame(sessionId);
-        
+
         if (!result) {
             return res.status(404).json({ error: 'No active DJ Game found' });
         }
@@ -1827,7 +1848,7 @@ app.post('/api/gaming/djgame/end', async (req, res) => {
             result,
             message: 'DJ Game ended successfully'
         });
-        
+
     } catch (error) {
         console.error('Error ending DJ Game:', error);
         res.status(500).json({ error: 'Failed to end DJ Game' });
@@ -1838,18 +1859,18 @@ app.post('/api/gaming/djgame/end', async (req, res) => {
 app.get('/api/gaming/djgame/playlist/:sessionId', async (req, res) => {
     try {
         const { sessionId } = req.params;
-        
+
         if (!sessionId) {
             return res.status(400).json({ error: 'sessionId is required' });
         }
 
         const playlist = gamingSystem.getDJGamePlaylist(sessionId);
-        
+
         res.json({
             success: true,
             playlist: playlist || []
         });
-        
+
     } catch (error) {
         console.error('Error getting DJ Game playlist:', error);
         res.status(500).json({ error: 'Failed to get DJ Game playlist' });
@@ -1876,7 +1897,7 @@ app.get('/api/spotify/auth', async (req, res) => {
 // Handle Spotify callback
 app.get('/callback', async (req, res) => {
     const { code } = req.query;
-    
+
     if (!code) {
         return res.status(400).json({ error: 'Authorization code is required' });
     }
@@ -1937,14 +1958,14 @@ app.get('/api/ngrok/status', (req, res) => {
 app.post('/api/webhooks', (req, res) => {
     try {
         const { id, url, events = ['all'], headers = {} } = req.body;
-        
+
         if (!id || !url) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'ID and URL are required' 
+            return res.status(400).json({
+                success: false,
+                error: 'ID and URL are required'
             });
         }
-        
+
         const result = ngrokManager.addWebhook(id, url, events, headers);
         res.json(result);
     } catch (error) {
@@ -1974,23 +1995,23 @@ app.post('/api/export/session/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const { externalApiUrl, apiKey, format = 'json' } = req.body;
-        
+
         if (!externalApiUrl) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'External API URL is required' 
+            return res.status(400).json({
+                success: false,
+                error: 'External API URL is required'
             });
         }
-        
+
         // Get session data
         const sessionData = await db.getSessionById(id);
         if (!sessionData) {
-            return res.status(404).json({ 
-                success: false, 
-                error: 'Session not found' 
+            return res.status(404).json({
+                success: false,
+                error: 'Session not found'
             });
         }
-        
+
         // Send to external API
         const result = await ngrokManager.sendSessionData(sessionData, externalApiUrl, apiKey);
         res.json(result);
@@ -2004,26 +2025,26 @@ app.get('/api/export/session/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const format = 'json';
-        
+
         // Get session data
         const sessionData = await db.getSessionById(id);
         if (!sessionData) {
-            return res.status(404).json({ 
-                success: false, 
-                error: 'Session not found' 
+            return res.status(404).json({
+                success: false,
+                error: 'Session not found'
             });
         }
-        
+
         // Get session events
         const events = await db.getSessionEvents(id);
         sessionData.events = events;
-        
+
         const exportedData = ngrokManager.exportSessionData(sessionData, format);
-        
+
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Content-Disposition', `attachment; filename="session-${id}.${format}"`);
         res.send(exportedData);
-        
+
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -2033,33 +2054,33 @@ app.get('/api/export/session/:id', async (req, res) => {
 app.get('/api/export/session/:id/:format', async (req, res) => {
     try {
         const { id, format } = req.params;
-        
+
         // Get session data
         const sessionData = await db.getSessionById(id);
         if (!sessionData) {
-            return res.status(404).json({ 
-                success: false, 
-                error: 'Session not found' 
+            return res.status(404).json({
+                success: false,
+                error: 'Session not found'
             });
         }
-        
+
         // Get session events
         const events = await db.getSessionEvents(id);
         sessionData.events = events;
-        
+
         const exportedData = ngrokManager.exportSessionData(sessionData, format);
-        
+
         // Set appropriate content type
         const contentTypes = {
             'json': 'application/json',
             'csv': 'text/csv',
             'summary': 'application/json'
         };
-        
+
         res.setHeader('Content-Type', contentTypes[format] || 'application/json');
         res.setHeader('Content-Disposition', `attachment; filename="session-${id}.${format}"`);
         res.send(exportedData);
-        
+
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -2069,7 +2090,7 @@ app.get('/api/export/session/:id/:format', async (req, res) => {
 app.post('/api/test-webhook', async (req, res) => {
     try {
         const { webhookId, testData = { message: 'Test webhook from TikTok Live Connector' } } = req.body;
-        
+
         if (webhookId) {
             // Test specific webhook
             const results = await ngrokManager.sendToWebhooks('test', testData);
@@ -2089,7 +2110,7 @@ app.post('/api/test-webhook', async (req, res) => {
 app.get('/api-docs', (req, res) => {
     const ngrokStatus = ngrokManager.getStatus();
     const baseUrl = ngrokStatus.isConnected ? ngrokStatus.url : `http://localhost:${PORT}`;
-    
+
     res.json({
         title: 'TikTok Live Connector API',
         version: '1.0.0',
@@ -2135,13 +2156,13 @@ app.get('/api-docs', (req, res) => {
 // Graceful shutdown
 process.on('SIGINT', async () => {
     console.log('\n🛑 Shutting down backend server...');
-    
+
     // Stop ngrok tunnel
     if (ngrokManager.getStatus().isConnected) {
         console.log('🔌 Stopping ngrok tunnel...');
         await ngrokManager.stopTunnel();
     }
-    
+
     // End all active sessions
     for (const [sessionId, connection] of activeConnections) {
         try {
@@ -2151,23 +2172,23 @@ process.on('SIGINT', async () => {
             console.error(`Error ending session ${sessionId}:`, error);
         }
     }
-    
+
     // Close database
     db.close();
-    
+
     console.log('✅ Backend server closed');
     process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
     console.log('\n🛑 Shutting down backend server...');
-    
+
     // Stop ngrok tunnel
     if (ngrokManager.getStatus().isConnected) {
         console.log('🔌 Stopping ngrok tunnel...');
         await ngrokManager.stopTunnel();
     }
-    
+
     // End all active sessions
     for (const [sessionId, connection] of activeConnections) {
         try {
@@ -2177,10 +2198,10 @@ process.on('SIGTERM', async () => {
             console.error(`Error ending session ${sessionId}:`, error);
         }
     }
-    
+
     // Close database
     db.close();
-    
+
     console.log('✅ Backend server closed');
     process.exit(0);
 });
@@ -2189,31 +2210,31 @@ process.on('SIGTERM', async () => {
 app.post('/api/game-settings', async (req, res) => {
     try {
         const { settings } = req.body;
-        
+
         if (!settings) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'Settings data is required' 
+            return res.status(400).json({
+                success: false,
+                error: 'Settings data is required'
             });
         }
 
         // Save settings to database
         await db.saveGameSettings(settings);
-        
+
         // Refresh gaming system settings
         await gamingSystem.refreshSettings();
-        
+
         console.log('🎮 Game settings saved successfully');
-        
-        res.json({ 
-            success: true, 
-            message: 'Game settings saved successfully' 
+
+        res.json({
+            success: true,
+            message: 'Game settings saved successfully'
         });
     } catch (error) {
         console.error('Error in game settings save:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Internal server error' 
+        res.status(500).json({
+            success: false,
+            error: 'Internal server error'
         });
     }
 });
@@ -2221,16 +2242,16 @@ app.post('/api/game-settings', async (req, res) => {
 app.get('/api/game-settings', async (req, res) => {
     try {
         const settings = await db.getGameSettings();
-        
-        res.json({ 
-            success: true, 
-            settings: settings 
+
+        res.json({
+            success: true,
+            settings: settings
         });
     } catch (error) {
         console.error('Error in game settings load:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Internal server error' 
+        res.status(500).json({
+            success: false,
+            error: 'Internal server error'
         });
     }
 });
