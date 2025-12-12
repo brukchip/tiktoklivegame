@@ -49,102 +49,100 @@ app.post('/api/sessions', async (req, res) => {
 
         console.log(`🚀 Creating session ${sessionId} for @${username}`);
 
-        // Create TikTok connection
-        const connectionOptions = {
+        // Default connection options (Mimicking a real browser)
+        const BaseConnectionOptions = {
             processInitialData: true,
             enableExtendedGiftInfo: true,
             fetchRoomInfoOnConnect: true,
-            requestOptions: {}
+            requestOptions: {
+                headers: {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Referer": "https://www.tiktok.com/",
+                }
+            }
         };
 
-        // Add Session ID if available (Bypasses some CAPTCHAs/Limits)
-        if (process.env.TIKTOK_SESSION_ID) {
-            connectionOptions.sessionId = process.env.TIKTOK_SESSION_ID;
-            console.log('🔐 Using configured Session ID');
-        }
+        // Add optional overrides (Proxy/Session) if they exist, but don't require them
+        if (process.env.TIKTOK_SESSION_ID) BaseConnectionOptions.sessionId = process.env.TIKTOK_SESSION_ID;
+        if (process.env.PROXY_URL) BaseConnectionOptions.requestOptions.proxy = process.env.PROXY_URL;
 
-        // Add Proxy if available (Bypasses IP blocks)
-        if (process.env.PROXY_URL) {
-            connectionOptions.requestOptions.proxy = process.env.PROXY_URL;
-            console.log('🛡️ Using configured Proxy');
-        }
-
-        const connection = new TikTokLiveConnection(username, connectionOptions);
-
-        // Check if user is live first (with fallback)
-        let isLive = false;
-        try {
-            isLive = await connection.fetchIsLive();
-            if (!isLive) {
-                console.log(`⚠️ @${username} might not be live, but attempting connection anyway...`);
-                // Don't return error immediately - try to connect anyway
-                // Some users might have privacy settings that block live status checks
-            }
-        } catch (error) {
-            console.log(`⚠️ Could not check live status for @${username}:`, error.message);
-            console.log(`🔄 Attempting to connect anyway...`);
-            // Continue with connection attempt even if live status check fails
-        }
-
-        // Session data
+        // Session data placeholders
         const sessionData = {
             id: sessionId,
             username,
-            connection,
+            connection: null, // Will set later
             status: 'connecting',
             startTime: new Date(),
             events: [],
-            stats: {
-                totalEvents: 0,
-                messages: 0,
-                gifts: 0,
-                likes: 0,
-                members: 0,
-                social: 0,
-                emotes: 0,
-                envelopes: 0,
-                questions: 0,
-                battles: 0,
-                roomUpdates: 0,
-                rankings: 0,
-                polls: 0,
-                shopping: 0,
-                moderation: 0,
-                captions: 0,
-                goals: 0,
-                banners: 0,
-                links: 0,
-                intros: 0,
-                other: 0
+            stats: { totalEvents: 0, messages: 0, gifts: 0, likes: 0, members: 0, social: 0, emotes: 0, envelopes: 0, questions: 0, battles: 0, roomUpdates: 0, rankings: 0, polls: 0, shopping: 0, moderation: 0, captions: 0, goals: 0, banners: 0, links: 0, intros: 0, other: 0 }
+        };
+
+        // Store session early so we can track it
+        activeSessions.set(sessionId, sessionData);
+
+        // --- RETRY CONNECT LOGIC ---
+        const connectWithRetry = async (attempt = 1) => {
+            try {
+                let options = { ...BaseConnectionOptions };
+
+                // On retry, try "Light Mode" (less suspicious)
+                if (attempt > 1) {
+                    console.log(`⚠️ Retry ${attempt}: Switching to Light Mode (Minimal Data)`);
+                    options.processInitialData = false;
+                    options.fetchRoomInfoOnConnect = false;
+                    options.enableExtendedGiftInfo = false;
+                }
+
+                console.log(`🚀 Connecting to @${username} (Attempt ${attempt})...`);
+                const connection = new TikTokLiveConnection(username, options);
+
+                // Bind events so they start capturing immediately
+                setupEventHandlers(connection, sessionId, sessionData);
+
+                // Update session reference
+                activeConnections.set(sessionId, connection);
+                sessionData.connection = connection;
+
+                const state = await connection.connect();
+                return { connection, state };
+
+            } catch (err) {
+                if (attempt < 3) { // Try up to 3 times
+                    console.log(`❌ Attempt ${attempt} failed: ${err.message}. Retrying...`);
+                    await new Promise(r => setTimeout(r, 2000)); // Wait 2s
+                    return connectWithRetry(attempt + 1);
+                }
+                throw err;
             }
         };
 
-        // Set up event handlers
-        setupEventHandlers(connection, sessionId, sessionData);
-
-        // Store session
-        activeSessions.set(sessionId, sessionData);
-        activeConnections.set(sessionId, connection);
-
-        // Connect to TikTok Live
         try {
-            const state = await connection.connect();
+            // Check Live Status (Optional - if it fails, we just try to connect anyway)
+            try {
+                const checkConn = new TikTokLiveConnection(username, BaseConnectionOptions);
+                const isLive = await checkConn.fetchIsLive();
+                if (!isLive) console.log(`⚠️ API says @${username} is offline, but trying connection anyway...`);
+            } catch (e) { /* Ignore check errors */ }
+
+            // Perform Connection
+            const { state } = await connectWithRetry();
 
             // Update session status
             sessionData.status = 'connected';
             sessionData.roomId = state.roomId;
-            sessionData.roomInfo = state.roomInfo;
+            sessionData.roomInfo = state.roomInfo || { owner: { display_id: username } };
 
             // Create session in database
-            await db.createSession(sessionId, username, state.roomId, state.roomInfo);
+            await db.createSession(sessionId, username, state.roomId, sessionData.roomInfo);
 
             // Update streamer info
-            if (state.roomInfo && state.roomInfo.owner) {
+            if (sessionData.roomInfo && sessionData.roomInfo.owner) {
                 await db.upsertStreamer(username, {
-                    displayName: state.roomInfo.owner.display_id || username,
-                    followerCount: state.roomInfo.owner.follow_count || 0,
-                    bio: state.roomInfo.owner.bio_description || '',
-                    profileImage: state.roomInfo.owner.avatar_large?.url_list?.[0] || ''
+                    displayName: sessionData.roomInfo.owner.display_id || username,
+                    followerCount: sessionData.roomInfo.owner.follow_count || 0,
+                    bio: sessionData.roomInfo.owner.bio_description || '',
+                    profileImage: sessionData.roomInfo.owner.avatar_large?.url_list?.[0] || ''
                 });
             }
 
@@ -156,12 +154,13 @@ app.post('/api/sessions', async (req, res) => {
                 roomId: state.roomId,
                 streamer: {
                     username,
-                    displayName: state.roomInfo?.owner?.display_id || username,
-                    followerCount: state.roomInfo?.owner?.follow_count || 0,
-                    viewerCount: state.roomInfo?.user_count || 0
+                    displayName: sessionData.roomInfo?.owner?.display_id || username,
+                    followerCount: sessionData.roomInfo?.owner?.follow_count || 0,
+                    viewerCount: sessionData.roomInfo?.user_count || 0
                 },
                 message: `Successfully connected to @${username}'s live stream`
             });
+
 
         } catch (error) {
             // Clean up on connection failure
