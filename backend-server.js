@@ -5,14 +5,12 @@ const express = require('express');
 const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
 const Database = require('./database');
-const NgrokManager = require('./ngrok-manager');
 const GamingSystem = require('./gaming-system');
 const { TikTokLiveConnection, WebcastEvent, ControlEvent } = require('./dist/index');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const db = new Database();
-const ngrokManager = new NgrokManager();
 const gamingSystem = new GamingSystem(db);
 
 // Store active connections and sessions
