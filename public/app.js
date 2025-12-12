@@ -1,18 +1,25 @@
 // TikTok Live Connector Frontend
 class TikTokLiveApp {
     constructor() {
-        this.API_BASE = 'http://localhost:3001/api';
+        // Automatically detect API base URL - works both locally and on deployed server
+        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        this.API_BASE = isLocalhost
+            ? 'http://localhost:3001/api'
+            : `${window.location.protocol}//${window.location.host}/api`;
+
+        console.log('🌐 API Base URL:', this.API_BASE);
+
         this.currentSession = null;
         this.currentFilter = 'all';
         this.eventSource = null;
         this.events = [];
         this.ngrokStatus = { isConnected: false, url: null };
-        
+
         // Pagination for sessions
         this.currentPage = 1;
         this.sessionsPerPage = 5;
         this.totalSessions = 0;
-        
+
         this.init();
     }
 
@@ -37,10 +44,10 @@ class TikTokLiveApp {
         const alert = document.createElement('div');
         alert.className = `alert alert-${type}`;
         alert.innerHTML = message;
-        
+
         container.innerHTML = '';
         container.appendChild(alert);
-        
+
         // Auto-remove after 5 seconds
         setTimeout(() => {
             if (container.contains(alert)) {
@@ -51,7 +58,7 @@ class TikTokLiveApp {
 
     async createSession() {
         const username = document.getElementById('username').value.trim();
-        
+
         if (!username) {
             this.showAlert('Please enter a TikTok username', 'error');
             return;
@@ -59,12 +66,12 @@ class TikTokLiveApp {
 
         const connectBtn = document.getElementById('connectBtn');
         const originalText = connectBtn.innerHTML;
-        
+
         try {
             // Show loading state
             connectBtn.innerHTML = '🔄 Connecting...';
             connectBtn.disabled = true;
-            
+
             this.showAlert('🔍 Checking if user is live and connecting...', 'info');
 
             const response = await fetch(`${this.API_BASE}/sessions`, {
@@ -84,17 +91,17 @@ class TikTokLiveApp {
             // Success!
             this.currentSession = data.sessionId;
             this.showAlert(`✅ ${data.message}`, 'success');
-            
+
             // Update UI
             this.updateSessionUI(data);
             this.startEventStream(data.sessionId);
-            
+
             // Clear username input
             document.getElementById('username').value = '';
-            
+
             // Show disconnect button
             document.getElementById('disconnectBtn').style.display = 'inline-block';
-            
+
         } catch (error) {
             console.error('Error creating session:', error);
             this.showAlert(`❌ ${error.message}`, 'error');
@@ -108,7 +115,7 @@ class TikTokLiveApp {
     updateSessionUI(sessionData) {
         const statusContainer = document.getElementById('sessionStatus');
         const statsContainer = document.getElementById('sessionStats');
-        
+
         statusContainer.innerHTML = `
             <div class="status-card">
                 <strong>Status:</strong> 🟢 Connected
@@ -120,7 +127,7 @@ class TikTokLiveApp {
                 <br><strong>Current Viewers:</strong> ${sessionData.streamer.viewerCount?.toLocaleString() || 'Unknown'}
             </div>
         `;
-        
+
         statsContainer.style.display = 'block';
     }
 
@@ -164,13 +171,13 @@ class TikTokLiveApp {
             });
 
             const result = await response.json();
-            
+
             if (result.success) {
                 this.showAlert('✅ Session ended successfully', 'success');
-                
+
                 // Refresh sessions list to show updated status
                 this.loadSessions();
-                
+
                 // If this was the current session, reset UI
                 if (this.currentSession === sessionId) {
                     this.resetUI();
@@ -188,7 +195,7 @@ class TikTokLiveApp {
     resetUI() {
         this.currentSession = null;
         this.events = [];
-        
+
         // Reset status
         document.getElementById('sessionStatus').innerHTML = `
             <div class="status-card disconnected">
@@ -196,13 +203,13 @@ class TikTokLiveApp {
                 <br><small>Connect to a TikTok live stream to start capturing events</small>
             </div>
         `;
-        
+
         // Hide stats
         document.getElementById('sessionStats').style.display = 'none';
-        
+
         // Hide disconnect button
         document.getElementById('disconnectBtn').style.display = 'none';
-        
+
         // Clear events
         document.getElementById('eventsContainer').innerHTML = `
             <div class="loading">
@@ -214,15 +221,15 @@ class TikTokLiveApp {
     startEventStream(sessionId) {
         // Close existing stream
         this.stopEventStream();
-        
+
         console.log(`🔗 Starting event stream for session ${sessionId}`);
-        
+
         this.eventSource = new EventSource(`${this.API_BASE}/sessions/${sessionId}/stream`);
-        
+
         this.eventSource.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                
+
                 if (data.type === 'session_info') {
                     console.log('📊 Session info received:', data.session);
                 } else if (data.type === 'events') {
@@ -232,7 +239,7 @@ class TikTokLiveApp {
                 console.error('Error parsing event data:', error);
             }
         };
-        
+
         this.eventSource.onerror = (error) => {
             console.error('EventSource error:', error);
             this.showAlert('❌ Connection to event stream lost', 'error');
@@ -255,31 +262,31 @@ class TikTokLiveApp {
                 this.events.unshift(event); // Add to beginning for most recent first
             }
         });
-        
+
         // Keep only last 200 events
         if (this.events.length > 200) {
             this.events = this.events.slice(0, 200);
         }
-        
+
         // Update stats
         this.updateStats(stats);
-        
+
         // Update events display
         this.displayEvents();
     }
 
     updateStats(stats) {
         if (!stats) return;
-        
+
         document.getElementById('totalEvents').textContent = stats.totalEvents || 0;
         document.getElementById('messagesCount').textContent = stats.messages || 0;
         document.getElementById('giftsCount').textContent = stats.gifts || 0;
         document.getElementById('likesCount').textContent = stats.likes || 0;
         document.getElementById('membersCount').textContent = stats.members || 0;
         document.getElementById('socialCount').textContent = stats.social || 0;
-        
+
         // Count shares separately from social events
-        const shareCount = this.events.filter(event => 
+        const shareCount = this.events.filter(event =>
             event.type === 'social' && event.subtype === 'share'
         ).length;
         document.getElementById('sharesCount').textContent = shareCount;
@@ -287,19 +294,19 @@ class TikTokLiveApp {
 
     showEvents(filter) {
         this.currentFilter = filter;
-        
+
         // Update tab buttons
         document.querySelectorAll('.tab-button').forEach(btn => {
             btn.classList.remove('active');
         });
         event.target.classList.add('active');
-        
+
         this.displayEvents();
     }
 
     displayEvents() {
         const container = document.getElementById('eventsContainer');
-        
+
         if (this.events.length === 0) {
             container.innerHTML = `
                 <div class="loading">
@@ -308,20 +315,20 @@ class TikTokLiveApp {
             `;
             return;
         }
-        
+
         // Filter events
         let filteredEvents = this.events;
         if (this.currentFilter !== 'all') {
             if (this.currentFilter === 'shares') {
                 // Special filter for shares only
-                filteredEvents = this.events.filter(event => 
+                filteredEvents = this.events.filter(event =>
                     event.type === 'social' && event.subtype === 'share'
                 );
             } else {
                 filteredEvents = this.events.filter(event => event.type === this.currentFilter);
             }
         }
-        
+
         // Display events
         const eventsHtml = filteredEvents.map(event => this.formatEvent(event)).join('');
         container.innerHTML = eventsHtml || `
@@ -329,7 +336,7 @@ class TikTokLiveApp {
                 <div>No ${this.currentFilter} events yet...</div>
             </div>
         `;
-        
+
         // Auto-scroll to top for new events
         container.scrollTop = 0;
     }
@@ -337,7 +344,7 @@ class TikTokLiveApp {
     formatEvent(event) {
         const time = new Date(event.timestamp).toLocaleTimeString();
         let content = '';
-        
+
         switch (event.type) {
             case 'chat':
                 content = `💬 ${event.username}: ${event.message}`;
@@ -422,10 +429,10 @@ class TikTokLiveApp {
                 // Only show clean, simple format for unknown events
                 content = `🔔 ${event.type} event`;
         }
-        
+
         // Special styling for share events
         const cssClass = (event.type === 'social' && event.subtype === 'share') ? 'event-share' : `event-${event.type}`;
-        
+
         return `
             <div class="event-item ${cssClass}">
                 <span style="opacity: 0.7; font-size: 0.9em;">[${time}]</span> ${content}
@@ -436,7 +443,7 @@ class TikTokLiveApp {
     async loadSessions() {
         try {
             const response = await fetch(`${this.API_BASE}/sessions`);
-            
+
             if (!response.ok) {
                 if (response.status === 500) {
                     throw new Error('Server error - database may be initializing');
@@ -444,10 +451,10 @@ class TikTokLiveApp {
                     throw new Error(`Server returned ${response.status}`);
                 }
             }
-            
+
             const data = await response.json();
             this.displaySessions(data.sessions || []);
-            
+
         } catch (error) {
             console.error('Error loading sessions:', error);
             document.getElementById('sessionsList').innerHTML = `
@@ -461,7 +468,7 @@ class TikTokLiveApp {
 
     displaySessions(sessions) {
         const container = document.getElementById('sessionsList');
-        
+
         if (sessions.length === 0) {
             container.innerHTML = `
                 <div class="loading">
@@ -470,23 +477,23 @@ class TikTokLiveApp {
             `;
             return;
         }
-        
+
         // Store total sessions and calculate pagination
         this.totalSessions = sessions.length;
         const totalPages = Math.ceil(this.totalSessions / this.sessionsPerPage);
-        
+
         // Calculate start and end indices for current page
         const startIndex = (this.currentPage - 1) * this.sessionsPerPage;
         const endIndex = Math.min(startIndex + this.sessionsPerPage, this.totalSessions);
         const paginatedSessions = sessions.slice(startIndex, endIndex);
-        
+
         const sessionsHtml = paginatedSessions.map(session => {
             const startTime = new Date(session.session_start).toLocaleString();
             const endTime = session.session_end ? new Date(session.session_end).toLocaleString() : 'Ongoing';
-            const duration = session.session_end ? 
-                this.calculateDuration(session.session_start, session.session_end) : 
+            const duration = session.session_end ?
+                this.calculateDuration(session.session_start, session.session_end) :
                 this.calculateDuration(session.session_start, new Date().toISOString());
-            
+
             return `
                 <div class="session-item ${session.isActive ? 'active' : ''}" 
                      data-session-id="${session.id}"
@@ -502,16 +509,16 @@ class TikTokLiveApp {
                             <div>Events: ${session.total_events || 0}</div>
                         </div>
                             <div style="display: flex; flex-direction: column; gap: 5px;">
-                                ${session.isActive ? 
-                                    `<button onclick="app.endSession('${session.id}')" 
+                                ${session.isActive ?
+                    `<button onclick="app.endSession('${session.id}')" 
                                              style="background: #e74c3c; color: white; border: none; padding: 6px 12px; 
                                                     border-radius: 15px; cursor: pointer; font-size: 0.8em; 
                                                     transition: all 0.3s ease;" 
                                              onmouseover="this.style.background='#c0392b'" 
                                              onmouseout="this.style.background='#e74c3c'">
                                         🛑 End Session
-                                     </button>` : 
-                                    `<button onclick="app.viewSessionEvents('${session.id}')" 
+                                     </button>` :
+                    `<button onclick="app.viewSessionEvents('${session.id}')" 
                                              style="background: #3498db; color: white; border: none; padding: 6px 12px; 
                                                     border-radius: 15px; cursor: pointer; font-size: 0.8em;
                                                     transition: all 0.3s ease;" 
@@ -519,7 +526,7 @@ class TikTokLiveApp {
                                              onmouseout="this.style.background='#3498db'">
                                         📊 View Events
                                      </button>`
-                                }
+                }
                                 <button onclick="app.useSessionForGaming('${session.id}', '${session.streamer_username}')" 
                                         style="background: #9b59b6; color: white; border: none; padding: 6px 12px; 
                                                border-radius: 15px; cursor: pointer; font-size: 0.8em;
@@ -546,7 +553,7 @@ class TikTokLiveApp {
                 </div>
             `;
         }).join('');
-        
+
         // Add pagination controls
         const paginationHtml = `
             <div style="display: flex; justify-content: space-between; align-items: center; 
@@ -575,7 +582,7 @@ class TikTokLiveApp {
                 </div>
             </div>
         `;
-        
+
         container.innerHTML = sessionsHtml + paginationHtml;
     }
 
@@ -584,7 +591,7 @@ class TikTokLiveApp {
         try {
             const response = await fetch(`${this.API_BASE}/sessions/${sessionId}`);
             const data = await response.json();
-            
+
             if (data.session) {
                 // Show detailed session info in a modal or alert
                 const session = data.session;
@@ -641,11 +648,11 @@ ${session.session_end ? `⏹️ Ended: ${new Date(session.session_end).toLocaleS
         const startTime = new Date(start);
         const endTime = new Date(end);
         const diff = endTime - startTime;
-        
+
         const hours = Math.floor(diff / (1000 * 60 * 60));
         const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
         const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-        
+
         if (hours > 0) {
             return `${hours}h ${minutes}m ${seconds}s`;
         } else if (minutes > 0) {
@@ -660,18 +667,18 @@ ${session.session_end ? `⏹️ Ended: ${new Date(session.session_end).toLocaleS
             // Load session info
             const sessionResponse = await fetch(`${this.API_BASE}/sessions/${sessionId}`);
             const sessionData = await sessionResponse.json();
-            
+
             // Load session events
             const eventsResponse = await fetch(`${this.API_BASE}/sessions/${sessionId}/events`);
             const eventsData = await eventsResponse.json();
-            
+
             if (!sessionResponse.ok || !eventsResponse.ok) {
                 throw new Error('Failed to load session details');
             }
-            
+
             // Display session details in a modal or update current view
             this.showSessionModal(sessionData, eventsData);
-            
+
         } catch (error) {
             console.error('Error loading session details:', error);
             this.showAlert(`❌ Failed to load session details: ${error.message}`, 'error');
@@ -683,7 +690,7 @@ ${session.session_end ? `⏹️ Ended: ${new Date(session.session_end).toLocaleS
         // For now, just log the data and show an alert
         console.log('Session Data:', sessionData);
         console.log('Events Data:', eventsData);
-        
+
         this.showAlert(`📊 Session has ${eventsData.events.length} events. Check console for details.`, 'info');
     }
 
@@ -692,20 +699,20 @@ ${session.session_end ? `⏹️ Ended: ${new Date(session.session_end).toLocaleS
             this.showAlert('No active session to export', 'error');
             return;
         }
-        
+
         try {
             const response = await fetch(`${this.API_BASE}/sessions/${this.currentSession}/events`);
             const data = await response.json();
-            
+
             if (!response.ok) {
                 throw new Error(data.error || 'Failed to export data');
             }
-            
+
             // Create and download JSON file
             const jsonData = JSON.stringify(data, null, 2);
             const blob = new Blob([jsonData], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
-            
+
             const a = document.createElement('a');
             a.href = url;
             a.download = `tiktok-session-${this.currentSession}.json`;
@@ -713,9 +720,9 @@ ${session.session_end ? `⏹️ Ended: ${new Date(session.session_end).toLocaleS
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
-            
+
             this.showAlert('✅ Data exported successfully', 'success');
-            
+
         } catch (error) {
             console.error('Error exporting data:', error);
             this.showAlert(`❌ Failed to export data: ${error.message}`, 'error');
@@ -740,17 +747,17 @@ ${session.session_end ? `⏹️ Ended: ${new Date(session.session_end).toLocaleS
         try {
             const button = document.getElementById('ngrokToggleBtn');
             const statusDiv = document.getElementById('ngrokStatus');
-            
+
             if (this.ngrokStatus.isConnected) {
                 // Stop ngrok
                 button.disabled = true;
                 button.textContent = '🛑 Stopping...';
-                
+
                 const response = await fetch(`${this.API_BASE}/ngrok/stop`, {
                     method: 'POST'
                 });
                 const result = await response.json();
-                
+
                 if (result.success) {
                     this.ngrokStatus = { isConnected: false, url: null };
                     this.updateNgrokUI();
@@ -764,14 +771,14 @@ ${session.session_end ? `⏹️ Ended: ${new Date(session.session_end).toLocaleS
                 button.textContent = '🚀 Starting...';
                 statusDiv.style.display = 'block';
                 this.updateNgrokStatus('connecting', 'Starting tunnel...');
-                
+
                 const response = await fetch(`${this.API_BASE}/ngrok/start`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ port: 3001 })
                 });
                 const result = await response.json();
-                
+
                 if (result.success) {
                     this.ngrokStatus = { isConnected: true, url: result.url };
                     this.updateNgrokUI();
@@ -782,13 +789,13 @@ ${session.session_end ? `⏹️ Ended: ${new Date(session.session_end).toLocaleS
             }
         } catch (error) {
             console.error('Error toggling ngrok:', error);
-            
+
             // Show helpful error message
             let errorMsg = error.message;
             if (errorMsg.includes('Failed after')) {
                 errorMsg += '\n\n💡 Quick fixes:\n• Check internet connection\n• Try manual: open Terminal and run "ngrok http 3001"\n• Visit ngrok dashboard to verify account';
             }
-            
+
             this.showAlert(`❌ Ngrok error: ${errorMsg}`, 'error');
             this.updateNgrokUI();
         }
@@ -798,9 +805,9 @@ ${session.session_end ? `⏹️ Ended: ${new Date(session.session_end).toLocaleS
         const button = document.getElementById('ngrokToggleBtn');
         const statusDiv = document.getElementById('ngrokStatus');
         const urlInput = document.getElementById('publicUrl');
-        
+
         button.disabled = false;
-        
+
         if (this.ngrokStatus.isConnected) {
             button.textContent = '🛑 Stop Public Access';
             button.className = 'btn btn-danger';
@@ -818,7 +825,7 @@ ${session.session_end ? `⏹️ Ended: ${new Date(session.session_end).toLocaleS
     updateNgrokStatus(status, text) {
         const statusDot = document.getElementById('statusDot');
         const statusText = document.getElementById('statusText');
-        
+
         statusDot.className = `status-dot ${status}`;
         statusText.textContent = text;
     }

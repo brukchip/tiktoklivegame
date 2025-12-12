@@ -1,7 +1,14 @@
 // TikTok Live Connector Data Viewer
 class DataViewer {
     constructor() {
-        this.API_BASE = 'http://localhost:3001/api';
+        // Automatically detect API base URL - works both locally and on deployed server
+        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        this.API_BASE = isLocalhost
+            ? 'http://localhost:3001/api'
+            : `${window.location.protocol}//${window.location.host}/api`;
+
+        console.log('🌐 Data Viewer API Base URL:', this.API_BASE);
+
         this.currentEventFilter = 'all';
         this.cachedData = {
             sessions: [],
@@ -9,14 +16,14 @@ class DataViewer {
             health: null,
             ngrok: null
         };
-        
+
         this.init();
     }
 
     init() {
         console.log('📊 Data Viewer initialized');
         this.loadAllData();
-        
+
         // Auto-refresh every 30 seconds
         setInterval(() => {
             this.loadSystemData();
@@ -72,7 +79,7 @@ class DataViewer {
             this.cachedData.sessions = data.sessions || [];
 
             const tbody = document.getElementById('sessionsTableBody');
-            
+
             if (this.cachedData.sessions.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; opacity: 0.7;">No sessions found</td></tr>';
                 return;
@@ -82,7 +89,7 @@ class DataViewer {
                 const startTime = new Date(session.session_start);
                 const endTime = session.session_end ? new Date(session.session_end) : new Date();
                 const duration = this.formatDuration(endTime - startTime);
-                
+
                 return `
                     <tr onclick="this.showSessionDetails('${session.id}')" style="cursor: pointer;">
                         <td>@${session.streamer_username}</td>
@@ -99,7 +106,7 @@ class DataViewer {
 
         } catch (error) {
             console.error('Error loading sessions data:', error);
-            document.getElementById('sessionsTableBody').innerHTML = 
+            document.getElementById('sessionsTableBody').innerHTML =
                 '<tr><td colspan="4" style="color: #f44336;">Error loading sessions</td></tr>';
         }
     }
@@ -108,7 +115,7 @@ class DataViewer {
         try {
             // Get recent events from the most recent session
             if (this.cachedData.sessions.length === 0) {
-                document.getElementById('eventsTableBody').innerHTML = 
+                document.getElementById('eventsTableBody').innerHTML =
                     '<tr><td colspan="4" style="text-align: center; opacity: 0.7;">No sessions available</td></tr>';
                 return;
             }
@@ -122,7 +129,7 @@ class DataViewer {
 
         } catch (error) {
             console.error('Error loading events data:', error);
-            document.getElementById('eventsTableBody').innerHTML = 
+            document.getElementById('eventsTableBody').innerHTML =
                 '<tr><td colspan="4" style="color: #f44336;">Error loading events</td></tr>';
         }
     }
@@ -145,7 +152,7 @@ class DataViewer {
             const time = new Date(event.timestamp).toLocaleTimeString();
             const typeClass = `event-type-${event.type}`;
             const userData = this.formatEventData(event);
-            
+
             return `
                 <tr>
                     <td>${time}</td>
@@ -182,9 +189,9 @@ class DataViewer {
         try {
             const response = await fetch(`${this.API_BASE}/health`);
             const data = await response.json();
-            
+
             const container = document.getElementById('apiStatusContent');
-            
+
             container.innerHTML = `
                 <div class="stats-overview">
                     <div class="stat-box">
@@ -207,7 +214,7 @@ class DataViewer {
 
         } catch (error) {
             console.error('Error loading API status:', error);
-            document.getElementById('apiStatusContent').innerHTML = 
+            document.getElementById('apiStatusContent').innerHTML =
                 '<div style="color: #f44336;">❌ API Connection Failed</div>';
         }
     }
@@ -224,11 +231,11 @@ class DataViewer {
             const totalGifts = sessions.reduce((sum, s) => sum + (s.total_gifts || 0), 0);
             const totalLikes = sessions.reduce((sum, s) => sum + (s.total_likes || 0), 0);
 
-            const avgEventsPerSession = totalSessions > 0 ? 
+            const avgEventsPerSession = totalSessions > 0 ?
                 Math.round(sessions.reduce((sum, s) => sum + (s.total_events || 0), 0) / totalSessions) : 0;
 
             const container = document.getElementById('databaseStatsContent');
-            
+
             container.innerHTML = `
                 <div class="stats-overview">
                     <div class="stat-box">
@@ -252,7 +259,7 @@ class DataViewer {
 
         } catch (error) {
             console.error('Error loading database stats:', error);
-            document.getElementById('databaseStatsContent').innerHTML = 
+            document.getElementById('databaseStatsContent').innerHTML =
                 '<div style="color: #f44336;">❌ Database Stats Failed</div>';
         }
     }
@@ -285,7 +292,7 @@ class DataViewer {
 
             const response = await fetch(`${this.API_BASE}${endpoint}`);
             const data = await response.json();
-            
+
             viewer.innerHTML = JSON.stringify(data, null, 2);
 
         } catch (error) {
@@ -296,13 +303,13 @@ class DataViewer {
 
     filterEvents(type) {
         this.currentEventFilter = type;
-        
+
         // Update filter buttons
         document.querySelectorAll('.filter-btn').forEach(btn => {
             btn.classList.remove('active');
         });
         event.target.classList.add('active');
-        
+
         // Update table
         this.updateEventsTable();
     }
@@ -325,13 +332,13 @@ class DataViewer {
         try {
             const response = await fetch(`${this.API_BASE}/sessions`);
             const data = await response.json();
-            
+
             if (format === 'json') {
                 this.downloadJSON(data, 'sessions-export.json');
             } else if (format === 'csv') {
                 this.downloadCSV(data.sessions, 'sessions-export.csv');
             }
-            
+
             this.showSuccess(`Sessions exported as ${format.toUpperCase()}`);
         } catch (error) {
             console.error('Export error:', error);
@@ -424,9 +431,9 @@ class DataViewer {
             ${type === 'success' ? 'background: #4CAF50;' : 'background: #f44336;'}
         `;
         notification.textContent = message;
-        
+
         document.body.appendChild(notification);
-        
+
         setTimeout(() => {
             notification.style.opacity = '0';
             setTimeout(() => {

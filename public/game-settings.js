@@ -1,7 +1,14 @@
 // Game Settings Management System
 class GameSettings {
     constructor() {
-        this.API_BASE = 'http://localhost:3001/api';
+        // Automatically detect API base URL - works both locally and on deployed server
+        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        this.API_BASE = isLocalhost
+            ? 'http://localhost:3001/api'
+            : `${window.location.protocol}//${window.location.host}/api`;
+
+        console.log('🌐 Game Settings API Base URL:', this.API_BASE);
+
         this.settings = this.getDefaultSettings();
         this.init();
     }
@@ -24,7 +31,7 @@ class GameSettings {
                 confettiEnabled: true,
                 spinDuration: 4
             },
-            
+
             // Poll Game Settings
             poll: {
                 duration: 30,
@@ -33,7 +40,7 @@ class GameSettings {
                 showLiveResults: true,
                 themeColor: "#3498db"
             },
-            
+
             // Race Game Settings
             race: {
                 duration: 60,
@@ -42,7 +49,7 @@ class GameSettings {
                 animationEnabled: true,
                 leaderboardEnabled: true
             },
-            
+
             // General Settings
             general: {
                 masterVolume: 70,
@@ -51,7 +58,7 @@ class GameSettings {
                 defaultGameMode: "luckywheel",
                 celebrationDuration: 8
             },
-            
+
             // Chat Integration
             chat: {
                 filteringEnabled: true,
@@ -59,7 +66,7 @@ class GameSettings {
                 allowDuplicateEntries: false,
                 entryCooldown: 5
             },
-            
+
             // Theme & Appearance
             theme: {
                 gamingTheme: "neon",
@@ -182,7 +189,7 @@ class GameSettings {
 
     async saveSettings() {
         this.collectSettingsFromUI();
-        
+
         try {
             const response = await fetch(`${this.API_BASE}/game-settings`, {
                 method: 'POST',
@@ -191,7 +198,7 @@ class GameSettings {
             });
 
             const result = await response.json();
-            
+
             if (result.success) {
                 this.showNotification('✅ Settings saved successfully!', 'success');
                 localStorage.setItem('gameSettings', JSON.stringify(this.settings));
@@ -326,12 +333,12 @@ class GameSettings {
     exportSettings() {
         const dataStr = JSON.stringify(this.settings, null, 2);
         const dataBlob = new Blob([dataStr], { type: 'application/json' });
-        
+
         const link = document.createElement('a');
         link.href = URL.createObjectURL(dataBlob);
         link.download = `game-settings-${new Date().toISOString().split('T')[0]}.json`;
         link.click();
-        
+
         this.showNotification('📤 Settings exported successfully', 'success');
     }
 
@@ -347,7 +354,7 @@ class GameSettings {
         reader.onload = (e) => {
             try {
                 const importedSettings = JSON.parse(e.target.result);
-                
+
                 // Validate settings structure
                 if (this.validateSettings(importedSettings)) {
                     this.settings = { ...this.getDefaultSettings(), ...importedSettings };
@@ -363,7 +370,7 @@ class GameSettings {
             }
         };
         reader.readAsText(file);
-        
+
         // Reset file input
         event.target.value = '';
     }
@@ -420,7 +427,7 @@ function handleFileImport(event) {
 let gameSettings;
 document.addEventListener('DOMContentLoaded', () => {
     gameSettings = new GameSettings();
-    
+
     // Make settings globally available
     window.gameSettings = gameSettings;
 });
