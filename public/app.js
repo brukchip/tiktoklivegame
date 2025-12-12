@@ -27,7 +27,6 @@ class TikTokLiveApp {
         console.log('🚀 TikTok Live Connector App initialized');
         this.loadSessions();
         this.setupEventListeners();
-        this.checkNgrokStatus();
     }
 
     setupEventListeners() {
