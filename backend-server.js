@@ -1915,200 +1915,42 @@ app.get('/callback', async (req, res) => {
     }
 });
 
-// ===== NGROK & EXTERNAL API ENDPOINTS =====
-
 // Health check endpoint
 app.get('/api/health', (req, res) => {
     res.json({
         status: 'healthy',
         timestamp: new Date().toISOString(),
-        activeSessions: activeSessions.size,
-        ngrok: ngrokManager.getStatus()
+        activeSessions: activeSessions.size
     });
 });
 
-// Start ngrok tunnel
-app.post('/api/ngrok/start', async (req, res) => {
-    try {
-        const { port = PORT } = req.body;
-        const result = await ngrokManager.startTunnel(port);
-        res.json(result);
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Stop ngrok tunnel
-app.post('/api/ngrok/stop', async (req, res) => {
-    try {
-        const result = await ngrokManager.stopTunnel();
-        res.json(result);
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Get ngrok status
-app.get('/api/ngrok/status', (req, res) => {
-    res.json(ngrokManager.getStatus());
-});
-
-// Add webhook
-app.post('/api/webhooks', (req, res) => {
-    try {
-        const { id, url, events = ['all'], headers = {} } = req.body;
-
-        if (!id || !url) {
-            return res.status(400).json({
-                success: false,
-                error: 'ID and URL are required'
-            });
-        }
-
-        const result = ngrokManager.addWebhook(id, url, events, headers);
-        res.json(result);
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Remove webhook
-app.delete('/api/webhooks/:id', (req, res) => {
-    try {
-        const { id } = req.params;
-        const result = ngrokManager.removeWebhook(id);
-        res.json(result);
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Get all webhooks
-app.get('/api/webhooks', (req, res) => {
-    const status = ngrokManager.getStatus();
-    res.json({ webhooks: status.webhooks });
-});
-
-// Send session data to external API
-app.post('/api/export/session/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { externalApiUrl, apiKey, format = 'json' } = req.body;
-
-        if (!externalApiUrl) {
-            return res.status(400).json({
-                success: false,
-                error: 'External API URL is required'
-            });
-        }
-
-        // Get session data
-        const sessionData = await db.getSessionById(id);
-        if (!sessionData) {
-            return res.status(404).json({
-                success: false,
-                error: 'Session not found'
-            });
-        }
-
-        // Send to external API
-        const result = await ngrokManager.sendSessionData(sessionData, externalApiUrl, apiKey);
-        res.json(result);
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Export session data in various formats (with default format)
+// Export session data (Simpler implementation without ngrokManager)
 app.get('/api/export/session/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const format = 'json';
 
         // Get session data
         const sessionData = await db.getSessionById(id);
         if (!sessionData) {
-            return res.status(404).json({
-                success: false,
-                error: 'Session not found'
-            });
+            return res.status(404).json({ error: 'Session not found' });
         }
 
         // Get session events
         const events = await db.getSessionEvents(id);
         sessionData.events = events;
-
-        const exportedData = ngrokManager.exportSessionData(sessionData, format);
 
         res.setHeader('Content-Type', 'application/json');
-        res.setHeader('Content-Disposition', `attachment; filename="session-${id}.${format}"`);
-        res.send(exportedData);
+        res.setHeader('Content-Disposition', `attachment; filename="session-${id}.json"`);
+        res.json(sessionData);
 
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Export session data in various formats (with specified format)
-app.get('/api/export/session/:id/:format', async (req, res) => {
-    try {
-        const { id, format } = req.params;
-
-        // Get session data
-        const sessionData = await db.getSessionById(id);
-        if (!sessionData) {
-            return res.status(404).json({
-                success: false,
-                error: 'Session not found'
-            });
-        }
-
-        // Get session events
-        const events = await db.getSessionEvents(id);
-        sessionData.events = events;
-
-        const exportedData = ngrokManager.exportSessionData(sessionData, format);
-
-        // Set appropriate content type
-        const contentTypes = {
-            'json': 'application/json',
-            'csv': 'text/csv',
-            'summary': 'application/json'
-        };
-
-        res.setHeader('Content-Type', contentTypes[format] || 'application/json');
-        res.setHeader('Content-Disposition', `attachment; filename="session-${id}.${format}"`);
-        res.send(exportedData);
-
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Real-time webhook test
-app.post('/api/test-webhook', async (req, res) => {
-    try {
-        const { webhookId, testData = { message: 'Test webhook from TikTok Live Connector' } } = req.body;
-
-        if (webhookId) {
-            // Test specific webhook
-            const results = await ngrokManager.sendToWebhooks('test', testData);
-            const result = results.find(r => r.id === webhookId);
-            res.json(result || { success: false, error: 'Webhook not found' });
-        } else {
-            // Test all webhooks
-            const results = await ngrokManager.sendToWebhooks('test', testData);
-            res.json({ results });
-        }
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        res.status(500).json({ error: error.message });
     }
 });
 
 // API documentation endpoint
 app.get('/api-docs', (req, res) => {
-    const ngrokStatus = ngrokManager.getStatus();
-    const baseUrl = ngrokStatus.isConnected ? ngrokStatus.url : `http://localhost:${PORT}`;
+    const baseUrl = `http://localhost:${PORT}`;
 
     res.json({
         title: 'TikTok Live Connector API',

@@ -55,7 +55,6 @@
         "callable-instance": "^2.0.0",
         "cors": "^2.8.5",
         "express": "^5.1.0",
-        "ngrok": "^5.0.0-beta.2",
         "node-fetch": "^2.7.0",
         "protobufjs": "^6.11.2",
         "spotify-web-api-node": "^5.0.2",

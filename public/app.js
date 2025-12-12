@@ -728,276 +728,44 @@ ${session.session_end ? `⏹️ Ended: ${new Date(session.session_end).toLocaleS
             this.showAlert(`❌ Failed to export data: ${error.message}`, 'error');
         }
     }
-    // ===== NGROK METHODS =====
-
-    async checkNgrokStatus() {
-        try {
-            const response = await fetch(`${this.API_BASE}/ngrok/status`);
-            const status = await response.json();
-            this.ngrokStatus = status;
-            this.updateNgrokUI();
-            return status;
-        } catch (error) {
-            console.error('Error checking ngrok status:', error);
-            return { isConnected: false, url: null };
-        }
-    }
-
-    async toggleNgrok() {
-        try {
-            const button = document.getElementById('ngrokToggleBtn');
-            const statusDiv = document.getElementById('ngrokStatus');
-
-            if (this.ngrokStatus.isConnected) {
-                // Stop ngrok
-                button.disabled = true;
-                button.textContent = '🛑 Stopping...';
-
-                const response = await fetch(`${this.API_BASE}/ngrok/stop`, {
-                    method: 'POST'
-                });
-                const result = await response.json();
-
-                if (result.success) {
-                    this.ngrokStatus = { isConnected: false, url: null };
-                    this.updateNgrokUI();
-                    this.showAlert('✅ Public access stopped', 'success');
-                } else {
-                    throw new Error(result.error || 'Failed to stop ngrok');
-                }
-            } else {
-                // Start ngrok
-                button.disabled = true;
-                button.textContent = '🚀 Starting...';
-                statusDiv.style.display = 'block';
-                this.updateNgrokStatus('connecting', 'Starting tunnel...');
-
-                const response = await fetch(`${this.API_BASE}/ngrok/start`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ port: 3001 })
-                });
-                const result = await response.json();
-
-                if (result.success) {
-                    this.ngrokStatus = { isConnected: true, url: result.url };
-                    this.updateNgrokUI();
-                    this.showAlert(`✅ Now public at: ${result.url}`, 'success');
-                } else {
-                    throw new Error(result.error || 'Failed to start ngrok');
-                }
-            }
-        } catch (error) {
-            console.error('Error toggling ngrok:', error);
-
-            // Show helpful error message
-            let errorMsg = error.message;
-            if (errorMsg.includes('Failed after')) {
-                errorMsg += '\n\n💡 Quick fixes:\n• Check internet connection\n• Try manual: open Terminal and run "ngrok http 3001"\n• Visit ngrok dashboard to verify account';
-            }
-
-            this.showAlert(`❌ Ngrok error: ${errorMsg}`, 'error');
-            this.updateNgrokUI();
-        }
-    }
-
-    updateNgrokUI() {
-        const button = document.getElementById('ngrokToggleBtn');
-        const statusDiv = document.getElementById('ngrokStatus');
-        const urlInput = document.getElementById('publicUrl');
-
-        button.disabled = false;
-
-        if (this.ngrokStatus.isConnected) {
-            button.textContent = '🛑 Stop Public Access';
-            button.className = 'btn btn-danger';
-            statusDiv.style.display = 'block';
-            urlInput.value = this.ngrokStatus.url || '';
-            this.updateNgrokStatus('connected', `Public at: ${this.ngrokStatus.url}`);
-        } else {
-            button.textContent = '🚀 Start Public Access';
-            button.className = 'btn';
-            statusDiv.style.display = 'none';
-            urlInput.value = '';
-        }
-    }
-
-    updateNgrokStatus(status, text) {
-        const statusDot = document.getElementById('statusDot');
-        const statusText = document.getElementById('statusText');
-
-        statusDot.className = `status-dot ${status}`;
-        statusText.textContent = text;
-    }
-
-    copyPublicUrl() {
-        const urlInput = document.getElementById('publicUrl');
-        urlInput.select();
-        document.execCommand('copy');
-        this.showAlert('📋 URL copied to clipboard!', 'info');
-    }
-
-    openPublicUrl() {
-        const url = document.getElementById('publicUrl').value;
-        if (url) {
-            window.open(url, '_blank');
-        }
-    }
-
-    showManualNgrok() {
-        const instructions = `
-🔧 Manual Ngrok Setup Instructions
-
-If the automatic "Start Public Access" button doesn't work, you can set up ngrok manually:
-
-📋 Step-by-Step:
-
-1️⃣ Open Terminal (Applications → Utilities → Terminal)
-
-2️⃣ Run this command:
-   ngrok http 3001
-
-3️⃣ Look for a line like:
-   "Forwarding    https://abc123.ngrok.io → http://localhost:3001"
-
-4️⃣ Copy the https://abc123.ngrok.io URL
-
-5️⃣ Share that URL with anyone to access your dashboard!
-
-🔧 If ngrok is not installed:
-   brew install ngrok
-
-🔑 If you need authentication:
-   1. Visit: https://dashboard.ngrok.com/get-started/your-authtoken
-   2. Copy your authtoken  
-   3. Run: ngrok authtoken YOUR_TOKEN_HERE
-
-⚡ Quick Fix Script:
-   Run: node fix-ngrok.js
-
-The manual method always works and gives you the same result as the button!
-        `;
-
-        // Create a modal-like alert with the instructions
-        const alertDiv = document.createElement('div');
-        alertDiv.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.8);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 10000;
-            backdrop-filter: blur(5px);
-        `;
-
-        const contentDiv = document.createElement('div');
-        contentDiv.style.cssText = `
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px;
-            border-radius: 15px;
-            max-width: 600px;
-            max-height: 80vh;
-            overflow-y: auto;
-            margin: 20px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-            border: 1px solid rgba(255,255,255,0.2);
-        `;
-
-        contentDiv.innerHTML = `
-            <h3 style="margin-top: 0; margin-bottom: 20px;">🔧 Manual Ngrok Setup</h3>
-            <pre style="white-space: pre-wrap; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; margin-bottom: 20px;">${instructions}</pre>
-            <div style="text-align: center;">
-                <button onclick="this.closest('.manual-modal').remove()" style="
-                    background: rgba(255,255,255,0.2);
-                    color: white;
-                    border: 1px solid rgba(255,255,255,0.3);
-                    padding: 10px 20px;
-                    border-radius: 25px;
-                    cursor: pointer;
-                    font-size: 14px;
-                ">✅ Got it!</button>
-            </div>
-        `;
-
-        alertDiv.className = 'manual-modal';
-        alertDiv.appendChild(contentDiv);
-        document.body.appendChild(alertDiv);
-
-        // Close on background click
-        alertDiv.addEventListener('click', (e) => {
-            if (e.target === alertDiv) {
-                alertDiv.remove();
-            }
-        });
-    }
-
-    // ===== WEBHOOK METHODS =====
-
-
-
-
-
-
-
-
-
-
-}
-
-// Global functions for HTML onclick handlers
-let app;
-
-function toggleNgrok() {
-    app.toggleNgrok();
-}
-
-function copyPublicUrl() {
-    app.copyPublicUrl();
-}
-
-function openPublicUrl() {
-    app.openPublicUrl();
-}
-
-
-
-function showManualNgrok() {
-    app.showManualNgrok();
-}
-
-function createSession() {
-    app.createSession();
-}
-
-function endCurrentSession() {
-    app.endCurrentSession();
-}
-
-function showEvents(filter) {
-    app.showEvents(filter);
-}
-
-function loadSessions() {
-    app.loadSessions();
-}
-
-function exportData() {
-    app.exportData();
 }
 
 // Initialize app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    app = new TikTokLiveApp();
+    // Only initialize if not already done
+    if (!window.app) {
+        window.app = new TikTokLiveApp();
+    }
 });
+
+// Global functions for onclick handlers inside HTML templates
+function createSession() {
+    window.app?.createSession();
+}
+
+function endCurrentSession() {
+    window.app?.endCurrentSession();
+}
+
+function loadSessions() {
+    window.app?.loadSessions();
+}
+
+function exportData() {
+    window.app?.exportData();
+}
+
+function showEvents(filter) {
+    window.app?.showEvents(filter);
+}
+
+// Deprecated ngrok placeholders to prevent UI errors
+function toggleNgrok() { }
+function showManualNgrok() { }
+function copyPublicUrl() { }
+function openPublicUrl() { }
 
 // Cleanup on page unload
 window.addEventListener('beforeunload', () => {
-    if (app) {
-        app.stopEventStream();
-    }
+    window.app?.stopEventStream();
 });
