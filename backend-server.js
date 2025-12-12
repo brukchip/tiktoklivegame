@@ -49,11 +49,12 @@ app.post('/api/sessions', async (req, res) => {
 
         console.log(`🚀 Creating session ${sessionId} for @${username}`);
 
-        // Default connection options (Mimicking a real browser)
+        // Default connection options
         const BaseConnectionOptions = {
             processInitialData: true,
             enableExtendedGiftInfo: true,
             fetchRoomInfoOnConnect: true,
+            enableWebsocketUpgrade: false, // <--- IMPORTANT: Disables signature requirement
             requestOptions: {
                 headers: {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
