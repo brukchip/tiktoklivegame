@@ -13,7 +13,6 @@ class TikTokLiveApp {
         this.currentFilter = 'all';
         this.eventSource = null;
         this.events = [];
-        this.ngrokStatus = { isConnected: false, url: null };
 
         // Pagination for sessions
         this.currentPage = 1;

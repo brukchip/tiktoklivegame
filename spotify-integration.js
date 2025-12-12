@@ -9,37 +9,20 @@ class SpotifyIntegration {
             clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
             redirectUri: 'http://localhost:3001/callback' // Will be updated dynamically
         });
-        
+
         this.accessToken = null;
         this.refreshToken = null;
         this.tokenExpirationTime = null;
     }
 
-    // Get current ngrok URL dynamically
-    async getCurrentNgrokUrl() {
-        try {
-            const response = await fetch('http://localhost:4040/api/tunnels');
-            const data = await response.json();
-            
-            if (data.tunnels && data.tunnels.length > 0) {
-                const httpsUrl = data.tunnels.find(t => t.proto === 'https')?.public_url;
-                return httpsUrl || data.tunnels[0].public_url;
-            }
-            
-            return null;
-        } catch (error) {
-            console.log('No ngrok tunnel found, using localhost');
-            return null;
-        }
+    // Get redirect URI from environment or default to localhost
+    getRedirectUri() {
+        return process.env.SPOTIFY_REDIRECT_URI || 'http://localhost:3001/callback';
     }
 
-    // Update redirect URI dynamically
-    async updateRedirectUri() {
-        const ngrokUrl = await this.getCurrentNgrokUrl();
-        const redirectUri = ngrokUrl ? 
-            `${ngrokUrl}/callback` : 
-            (process.env.SPOTIFY_LOCAL_REDIRECT_URI || 'http://localhost:3001/callback');
-        
+    // Update redirect URI
+    updateRedirectUri() {
+        const redirectUri = this.getRedirectUri();
         this.spotifyApi.setRedirectURI(redirectUri);
         return redirectUri;
     }
@@ -49,7 +32,7 @@ class SpotifyIntegration {
         this.accessToken = accessToken;
         this.refreshToken = refreshToken;
         this.tokenExpirationTime = Date.now() + (expiresIn * 1000);
-        
+
         this.spotifyApi.setAccessToken(accessToken);
         this.spotifyApi.setRefreshToken(refreshToken);
     }
@@ -78,9 +61,9 @@ class SpotifyIntegration {
     async searchSong(query) {
         try {
             await this.ensureValidToken();
-            
+
             const result = await this.spotifyApi.searchTracks(query, { limit: 5 });
-            
+
             if (result.body.tracks.items.length === 0) {
                 return null;
             }
@@ -106,9 +89,9 @@ class SpotifyIntegration {
     async addToPlaylist(playlistId, trackUri) {
         try {
             await this.ensureValidToken();
-            
+
             const result = await this.spotifyApi.addTracksToPlaylist(playlistId, [trackUri]);
-            
+
             return {
                 success: true,
                 snapshotId: result.body.snapshot_id
@@ -125,7 +108,7 @@ class SpotifyIntegration {
     // Get authentication URL for OAuth flow
     async getAuthUrl() {
         await this.updateRedirectUri();
-        
+
         const scopes = [
             'user-read-private',
             'user-read-email',
@@ -134,7 +117,7 @@ class SpotifyIntegration {
             'user-library-read',
             'user-library-modify'
         ];
-        
+
         return this.spotifyApi.createAuthorizeURL(scopes);
     }
 
@@ -142,13 +125,13 @@ class SpotifyIntegration {
     async handleCallback(code) {
         try {
             const data = await this.spotifyApi.authorizationCodeGrant(code);
-            
+
             this.setTokens(
                 data.body.access_token,
                 data.body.refresh_token,
                 data.body.expires_in
             );
-            
+
             return {
                 success: true,
                 accessToken: data.body.access_token,
@@ -168,9 +151,9 @@ class SpotifyIntegration {
     async getCurrentUser() {
         try {
             await this.ensureValidToken();
-            
+
             const result = await this.spotifyApi.getMe();
-            
+
             return {
                 id: result.body.id,
                 displayName: result.body.display_name,

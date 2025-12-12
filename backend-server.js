@@ -1955,7 +1955,7 @@ app.get('/api-docs', (req, res) => {
         title: 'TikTok Live Connector API',
         version: '1.0.0',
         baseUrl,
-        ngrok: ngrokStatus,
+
         endpoints: {
             sessions: {
                 'GET /api/sessions': 'List all sessions',
@@ -1970,11 +1970,7 @@ app.get('/api-docs', (req, res) => {
                 'GET /api/sessions/:sessionId/users/:userId/activity': 'Get user activity in session',
                 'POST /api/users/profiles/batch': 'Get multiple user profiles'
             },
-            ngrok: {
-                'POST /api/ngrok/start': 'Start ngrok tunnel',
-                'POST /api/ngrok/stop': 'Stop ngrok tunnel',
-                'GET /api/ngrok/status': 'Get ngrok status'
-            },
+
             webhooks: {
                 'POST /api/webhooks': 'Add webhook',
                 'GET /api/webhooks': 'List webhooks',
@@ -1997,12 +1993,6 @@ app.get('/api-docs', (req, res) => {
 process.on('SIGINT', async () => {
     console.log('\n🛑 Shutting down backend server...');
 
-    // Stop ngrok tunnel
-    if (ngrokManager.getStatus().isConnected) {
-        console.log('🔌 Stopping ngrok tunnel...');
-        await ngrokManager.stopTunnel();
-    }
-
     // End all active sessions
     for (const [sessionId, connection] of activeConnections) {
         try {
@@ -2022,12 +2012,6 @@ process.on('SIGINT', async () => {
 
 process.on('SIGTERM', async () => {
     console.log('\n🛑 Shutting down backend server...');
-
-    // Stop ngrok tunnel
-    if (ngrokManager.getStatus().isConnected) {
-        console.log('🔌 Stopping ngrok tunnel...');
-        await ngrokManager.stopTunnel();
-    }
 
     // End all active sessions
     for (const [sessionId, connection] of activeConnections) {

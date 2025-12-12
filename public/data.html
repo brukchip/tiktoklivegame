@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -32,7 +33,7 @@
         .header h1 {
             font-size: 2.5em;
             margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
         }
 
         .nav-menu {
@@ -107,7 +108,7 @@
 
         .refresh-btn:hover {
             transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
         }
 
         .stats-overview {
@@ -216,7 +217,7 @@
         }
 
         .spinner {
-            border: 3px solid rgba(255,255,255,0.3);
+            border: 3px solid rgba(255, 255, 255, 0.3);
             border-top: 3px solid white;
             border-radius: 50%;
             width: 30px;
@@ -226,17 +227,42 @@
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
-        .event-type-chat { color: #64B5F6; }
-        .event-type-gift { color: #FFB74D; }
-        .event-type-member { color: #81C784; }
-        .event-type-like { color: #F48FB1; }
-        .event-type-social { color: #FFF176; }
-        .event-type-battle { color: #FF7043; }
-        .event-type-room_update { color: #5C6BC0; }
+        .event-type-chat {
+            color: #64B5F6;
+        }
+
+        .event-type-gift {
+            color: #FFB74D;
+        }
+
+        .event-type-member {
+            color: #81C784;
+        }
+
+        .event-type-like {
+            color: #F48FB1;
+        }
+
+        .event-type-social {
+            color: #FFF176;
+        }
+
+        .event-type-battle {
+            color: #FF7043;
+        }
+
+        .event-type-room_update {
+            color: #5C6BC0;
+        }
 
         .json-viewer {
             background: rgba(0, 0, 0, 0.5);
@@ -268,7 +294,7 @@
 
         .export-btn:hover {
             transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
         }
 
         .full-width {
@@ -279,18 +305,19 @@
             .data-grid {
                 grid-template-columns: 1fr;
             }
-            
+
             .nav-menu {
                 flex-direction: column;
                 align-items: center;
             }
-            
+
             .stats-overview {
                 grid-template-columns: repeat(2, 1fr);
             }
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <div class="header">
@@ -348,7 +375,9 @@
                             </tr>
                         </thead>
                         <tbody id="sessionsTableBody">
-                            <tr><td colspan="4" class="loading">Loading sessions...</td></tr>
+                            <tr>
+                                <td colspan="4" class="loading">Loading sessions...</td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>
@@ -382,7 +411,9 @@
                             </tr>
                         </thead>
                         <tbody id="eventsTableBody">
-                            <tr><td colspan="4" class="loading">Loading events...</td></tr>
+                            <tr>
+                                <td colspan="4" class="loading">Loading events...</td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>
@@ -417,11 +448,10 @@
         <div class="data-card full-width">
             <div class="card-header">
                 <div class="card-title">🔍 Raw Data Viewer</div>
-                <select id="dataTypeSelect" onchange="loadRawData()" style="margin-left: auto; padding: 8px; border-radius: 5px; background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.3);">
+                <select id="dataTypeSelect" onchange="loadRawData()"
+                    style="margin-left: auto; padding: 8px; border-radius: 5px; background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.3);">
                     <option value="health">Health Check</option>
                     <option value="sessions">All Sessions</option>
-                    <option value="ngrok">Ngrok Status</option>
-                    <option value="webhooks">Webhooks</option>
                 </select>
                 <button class="refresh-btn" onclick="loadRawData()">🔄 Refresh</button>
             </div>
@@ -433,4 +463,5 @@
 
     <script src="data-viewer.js"></script>
 </body>
+
 </html>

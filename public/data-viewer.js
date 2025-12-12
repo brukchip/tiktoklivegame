@@ -13,8 +13,7 @@ class DataViewer {
         this.cachedData = {
             sessions: [],
             events: [],
-            health: null,
-            ngrok: null
+            health: null
         };
 
         this.init();
@@ -202,10 +201,6 @@ class DataViewer {
                         <div class="stat-number">${data.activeSessions}</div>
                         <div class="stat-label">Active Sessions</div>
                     </div>
-                    <div class="stat-box">
-                        <div class="stat-number">${data.ngrok?.isConnected ? '🟢' : '🔴'}</div>
-                        <div class="stat-label">Ngrok Status</div>
-                    </div>
                 </div>
                 <div style="margin-top: 15px; font-size: 12px; opacity: 0.8;">
                     Last updated: ${new Date(data.timestamp).toLocaleString()}
@@ -279,12 +274,6 @@ class DataViewer {
                     break;
                 case 'sessions':
                     endpoint = '/sessions';
-                    break;
-                case 'ngrok':
-                    endpoint = '/ngrok/status';
-                    break;
-                case 'webhooks':
-                    endpoint = '/webhooks';
                     break;
                 default:
                     endpoint = '/health';
